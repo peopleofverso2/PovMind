@@ -1,0 +1,7 @@
+.DS_Store
+.git
+.playwright-cli
+output
+node_modules
+npm-debug.log
+*.zip

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://povmind-472136847189.europe-west1.run.app/sitemap.xml

@@ -1,0 +1,37 @@
+{
+  "name": "PovMind",
+  "short_name": "PovMind",
+  "description": "Vault Markdown local avec liens wiki, backlinks, graphe et export Codex KB.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "fr",
+  "dir": "ltr",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f4ef",
+  "theme_color": "#f32617",
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Nouvelle note",
+      "short_name": "Note",
+      "description": "Ouvrir PovMind pour créer une note.",
+      "url": "/"
+    },
+    {
+      "name": "Journal",
+      "short_name": "Journal",
+      "description": "Ouvrir PovMind pour le journal quotidien.",
+      "url": "/"
+    }
+  ],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

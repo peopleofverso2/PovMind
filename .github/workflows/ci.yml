@@ -1,0 +1,33 @@
+name: PovMind CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  check:
+    name: Check app and repo manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify version sync
+        run: |
+          npm run sync:version
+          git diff --exit-code
+
+      - name: Syntax checks
+        run: npm run check
+
+      - name: Smoke repo manifest
+        run: |
+          node scripts/repo-manifest.mjs . --stdout > /tmp/povmind-repo-manifest.json
+          node -e "const m=require('/tmp/povmind-repo-manifest.json'); if (!m.files.some((f)=>f.path==='app.js')) throw new Error('app.js missing from repo manifest'); console.log('manifest ok', m.indexedCount, m.treeHash.slice(0,12));"

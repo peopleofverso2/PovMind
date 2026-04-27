@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
+  <meta name="povmind-version" content="0.4.0" />
+  <meta name="robots" content="index,follow" />
+  <meta name="theme-color" content="#f32617" />
+  <meta name="application-name" content="PovMind" />
+  <meta name="apple-mobile-web-app-title" content="PovMind" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="canonical" href="https://povmind-472136847189.europe-west1.run.app/" />
+  <title>PovMind — vault Markdown sécurisé</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/icon.svg" />
+  <meta property="og:site_name" content="PovMind" />
+  <meta property="og:title" content="PovMind — vault Markdown sécurisé" />
+  <meta property="og:description" content="Un espace de connaissance Markdown avec liens wiki, backlinks, graphe visuel et export Codex KB." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://povmind-472136847189.europe-west1.run.app/" />
+  <meta property="og:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
+  <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
+  <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
+  <link rel="stylesheet" href="styles.css?v=0.4.0" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navigation des notes">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true">PM</div>
+        <div>
+          <h1>PovMind</h1>
+          <p>Intelligence vault</p>
+        </div>
+      </header>
+
+      <div id="vaultStats" class="vault-stats" aria-label="Statistiques du carnet"></div>
+
+      <div class="sidebar-actions">
+        <button id="newNoteBtn" class="primary-btn" type="button">Nouvelle note</button>
+        <button id="dailyNoteBtn" class="ghost-btn" type="button">Journal</button>
+        <button id="docVaultBtn" class="ghost-btn" type="button">Doc PovMind</button>
+        <button id="commandPaletteBtn" class="ghost-btn" type="button">Commandes</button>
+        <button id="importBtn" class="ghost-btn" type="button">Importer</button>
+        <input id="importInput" type="file" accept="application/json,.json" hidden />
+      </div>
+
+      <label class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input id="searchInput" type="search" placeholder="Rechercher une note, un tag…" autocomplete="off" />
+      </label>
+
+      <div id="tagFilters" class="tag-filters" aria-label="Filtres par tag"></div>
+
+      <section class="sidebar-section" aria-label="Dossiers">
+        <div class="sidebar-section-title">Dossiers</div>
+        <div id="folderFilters" class="folder-filters"></div>
+      </section>
+
+      <section class="sidebar-section" aria-label="Favoris">
+        <div class="sidebar-section-title">Favoris</div>
+        <div id="starredList" class="starred-list"></div>
+      </section>
+
+      <div id="notesList" class="notes-list" role="list"></div>
+
+      <footer class="sidebar-footer">
+        <button id="exportVaultBtn" class="ghost-btn" type="button">Exporter le carnet</button>
+        <button id="exportMcpBtn" class="ghost-btn" type="button">Exporter MCP</button>
+        <button id="exportCodexBtn" class="primary-btn" type="button">Exporter Codex KB</button>
+        <button id="resetDemoBtn" class="text-btn" type="button">Réinitialiser démo</button>
+      </footer>
+    </aside>
+
+    <div id="sidebarResizer" class="layout-resizer sidebar-resizer" role="separator" aria-label="Redimensionner la navigation" aria-orientation="vertical" tabindex="0"></div>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="title-stack">
+          <input id="titleInput" class="title-input" type="text" spellcheck="false" aria-label="Titre de la note" />
+          <label class="folder-field">
+            <span>Dossier</span>
+            <input id="folderInput" type="text" list="folderSuggestions" spellcheck="false" aria-label="Dossier de la note" />
+            <datalist id="folderSuggestions"></datalist>
+          </label>
+        </div>
+        <div class="note-meta">
+          <span id="savedStatus">Sauvegardé</span>
+          <span id="wordCount">0 mot</span>
+        </div>
+        <div class="top-actions">
+          <button id="starNoteBtn" class="icon-btn" type="button" title="Ajouter aux favoris" aria-label="Ajouter aux favoris" aria-pressed="false">☆</button>
+          <button id="templateBtn" class="ghost-btn" type="button">Templates</button>
+          <button id="viewModeBtn" class="ghost-btn" type="button" title="Changer de vue">Split</button>
+          <button id="exportMdBtn" class="ghost-btn" type="button">Exporter .md</button>
+          <button id="deleteNoteBtn" class="danger-btn" type="button">Supprimer</button>
+        </div>
+      </header>
+
+      <section id="editorGrid" class="editor-grid" data-view="split">
+        <section class="panel editor-panel" aria-label="Éditeur Markdown">
+          <div class="panel-header">Éditeur</div>
+          <textarea id="editor" spellcheck="true" placeholder="Écris en Markdown. Exemple : [[Accueil]], #tag, **gras**…"></textarea>
+        </section>
+        <div id="editorResizer" class="editor-resizer" role="separator" aria-label="Redimensionner éditeur et aperçu" aria-orientation="vertical" tabindex="0"></div>
+        <section class="panel preview-panel" aria-label="Aperçu Markdown">
+          <div class="panel-header">Aperçu</div>
+          <article id="preview" class="preview-content"></article>
+        </section>
+      </section>
+    </main>
+
+    <div id="inspectorResizer" class="layout-resizer inspector-resizer" role="separator" aria-label="Redimensionner l'inspecteur" aria-orientation="vertical" tabindex="0"></div>
+
+    <aside class="inspector" aria-label="Inspecteur de note">
+      <section class="inspector-card security-card">
+        <div class="section-title">
+          <h2>Accès assistant</h2>
+          <span id="securityStatus">À sceller</span>
+        </div>
+        <div class="security-row">
+          <span>Vault</span>
+          <strong id="vaultKeyLabel">—</strong>
+        </div>
+        <label class="token-field">
+          <span>Token</span>
+          <input id="assistantTokenOutput" type="text" readonly placeholder="Générer un token" aria-label="Token assistant PovMind" />
+        </label>
+        <div class="security-actions">
+          <button id="generateTokenBtn" class="ghost-btn" type="button">Nouveau token</button>
+          <button id="copyTokenBtn" class="ghost-btn" type="button">Copier</button>
+          <button id="securityExportMcpBtn" class="primary-btn" type="button">MCP</button>
+        </div>
+      </section>
+
+      <section class="inspector-card snapshot-card">
+        <div class="section-title">
+          <h2>Snapshots</h2>
+          <span id="snapshotCount">0</span>
+        </div>
+        <div class="snapshot-digest">
+          <span>Dernier hash</span>
+          <strong id="snapshotHashLabel">—</strong>
+        </div>
+        <div class="snapshot-actions">
+          <button id="createSnapshotBtn" class="primary-btn" type="button">Créer snapshot</button>
+          <button id="exportSnapshotBtn" class="ghost-btn" type="button">Exporter</button>
+        </div>
+        <div id="snapshotsList" class="snapshots-list"></div>
+      </section>
+
+      <section class="inspector-card repo-card">
+        <div class="section-title">
+          <h2>Code repo</h2>
+          <span id="repoStatus">Non lié</span>
+        </div>
+        <div class="repo-row">
+          <span>Repo</span>
+          <strong id="repoNameLabel">—</strong>
+        </div>
+        <div id="repoMetaLine" class="repo-meta">Importe un manifeste généré depuis le repo.</div>
+        <div class="repo-actions">
+          <button id="importRepoBtn" class="primary-btn" type="button">Importer manifest</button>
+          <button id="exportRepoBtn" class="ghost-btn" type="button">Exporter</button>
+          <button id="codeRepoNoteBtn" class="ghost-btn" type="button">Note code</button>
+          <input id="repoManifestInput" type="file" accept="application/json,.json" hidden />
+        </div>
+        <div id="repoFilesList" class="repo-files-list"></div>
+      </section>
+
+      <section class="inspector-card">
+        <div class="section-title">
+          <h2>Backlinks</h2>
+          <span id="backlinkCount">0</span>
+        </div>
+        <div id="backlinks" class="backlinks"></div>
+      </section>
+
+      <section class="inspector-card">
+        <div class="section-title">
+          <h2>Tags</h2>
+        </div>
+        <div id="noteTags" class="note-tags"></div>
+      </section>
+
+      <section class="inspector-card">
+        <div class="section-title">
+          <h2>Liens sortants</h2>
+          <span id="outgoingCount">0</span>
+        </div>
+        <div id="outgoingLinks" class="outgoing-links"></div>
+      </section>
+
+      <section id="graphCard" class="inspector-card graph-card">
+        <div class="section-title">
+          <h2>Graphe</h2>
+          <div class="graph-actions">
+            <span id="graphStats">0 lien</span>
+            <button id="graphFullscreenBtn" class="graph-tool-btn" type="button" aria-label="Afficher le graphe en plein écran" title="Plein écran">⛶</button>
+          </div>
+        </div>
+        <svg id="graph" class="graph" viewBox="0 0 540 380" role="img" aria-label="Graphe des notes liées"></svg>
+        <div id="graphResizeHandle" class="graph-resizer" role="separator" aria-label="Redimensionner le graphe" aria-orientation="horizontal" tabindex="0"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="commandPalette" class="command-palette" role="dialog" aria-modal="true" aria-label="Palette de commandes" hidden>
+    <div class="command-panel">
+      <input id="commandInput" type="search" autocomplete="off" placeholder="Commande, note ou recherche…" aria-label="Rechercher une commande ou une note" />
+      <div id="commandResults" class="command-results" role="listbox"></div>
+    </div>
+  </div>
+
+  <div id="templatePicker" class="template-picker" role="dialog" aria-modal="true" aria-label="Choisir un template" hidden>
+    <div class="template-panel">
+      <div class="template-panel-header">
+        <strong>Templates</strong>
+        <button id="closeTemplateBtn" class="icon-btn" type="button" aria-label="Fermer">×</button>
+      </div>
+      <div id="templateList" class="template-list"></div>
+    </div>
+  </div>
+
+  <script src="app.js?v=0.4.0"></script>
+</body>
+</html>

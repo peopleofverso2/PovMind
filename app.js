@@ -1,0 +1,3640 @@
+const APP_NAME = "PovMind";
+const APP_VERSION = "0.4.0";
+const STORAGE_KEY = "povmind:v1";
+const VIEW_KEY = "povmind:view";
+const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
+const STARRED_KEY = "povmind:starred";
+const LAYOUT_KEY = "povmind:layout";
+const SECURITY_KEY = "povmind:security";
+const DOC_VAULT_KEY = "povmind:doc-vault:v1";
+const SNAPSHOTS_KEY = "povmind:snapshots";
+const REPO_KEY = "povmind:repo";
+const LEGACY_STORAGE_KEY = "graphnotes:v1";
+const LEGACY_VIEW_KEY = "graphnotes:view";
+const LEGACY_GRAPH_LAYOUT_KEY = "graphnotes:graph-layout";
+const LEGACY_STARRED_KEY = "graphnotes:starred";
+const MAX_GRAPH_NODES = 80;
+const MAX_SNAPSHOTS = 24;
+const MAX_REPO_FILES_RENDERED = 8;
+const ROOT_FOLDER = "Racine";
+const DEFAULT_LAYOUT = {
+  sidebarWidth: 316,
+  inspectorWidth: 350,
+  editorPaneWidth: null,
+  graphHeight: 300,
+};
+
+const NOTE_TEMPLATES = [
+  {
+    id: "blank",
+    name: "Note vide",
+    folder: ROOT_FOLDER,
+    body: (title) => `# ${title}\n\n`,
+  },
+  {
+    id: "project",
+    name: "Projet",
+    folder: "Projets",
+    body: (title) => `# ${title}\n\n## Objectif\n\n\n## Contexte\n\n\n## Décisions\n\n- \n\n## Prochaines actions\n\n- [ ] \n\n#projet`,
+  },
+  {
+    id: "meeting",
+    name: "Réunion",
+    folder: "Réunions",
+    body: (title) => `# ${title}\n\nDate : ${formatLongDate(new Date())}\n\n## Participants\n\n- \n\n## Points discutés\n\n- \n\n## Décisions\n\n- \n\n## Actions\n\n- [ ] \n\n#reunion`,
+  },
+  {
+    id: "research",
+    name: "Recherche",
+    folder: "Recherche",
+    body: (title) => `# ${title}\n\n## Question\n\n\n## Sources\n\n- \n\n## Synthèse\n\n\n## À vérifier\n\n- [ ] \n\n#recherche`,
+  },
+  {
+    id: "daily",
+    name: "Journal",
+    folder: "Journal",
+    body: (title) => `# ${title}\n\n## Notes\n\n\n## Tâches\n\n- [ ] \n\n## Liens\n\n- [[Accueil]]\n\n#journal`,
+  },
+];
+
+const els = {
+  newNoteBtn: document.getElementById("newNoteBtn"),
+  docVaultBtn: document.getElementById("docVaultBtn"),
+  importBtn: document.getElementById("importBtn"),
+  importInput: document.getElementById("importInput"),
+  searchInput: document.getElementById("searchInput"),
+  tagFilters: document.getElementById("tagFilters"),
+  notesList: document.getElementById("notesList"),
+  exportVaultBtn: document.getElementById("exportVaultBtn"),
+  exportMcpBtn: document.getElementById("exportMcpBtn"),
+  exportCodexBtn: document.getElementById("exportCodexBtn"),
+  resetDemoBtn: document.getElementById("resetDemoBtn"),
+  vaultStats: document.getElementById("vaultStats"),
+  dailyNoteBtn: document.getElementById("dailyNoteBtn"),
+  commandPaletteBtn: document.getElementById("commandPaletteBtn"),
+  titleInput: document.getElementById("titleInput"),
+  folderInput: document.getElementById("folderInput"),
+  folderSuggestions: document.getElementById("folderSuggestions"),
+  savedStatus: document.getElementById("savedStatus"),
+  wordCount: document.getElementById("wordCount"),
+  starNoteBtn: document.getElementById("starNoteBtn"),
+  templateBtn: document.getElementById("templateBtn"),
+  viewModeBtn: document.getElementById("viewModeBtn"),
+  exportMdBtn: document.getElementById("exportMdBtn"),
+  deleteNoteBtn: document.getElementById("deleteNoteBtn"),
+  folderFilters: document.getElementById("folderFilters"),
+  starredList: document.getElementById("starredList"),
+  editorGrid: document.getElementById("editorGrid"),
+  editor: document.getElementById("editor"),
+  preview: document.getElementById("preview"),
+  backlinkCount: document.getElementById("backlinkCount"),
+  backlinks: document.getElementById("backlinks"),
+  noteTags: document.getElementById("noteTags"),
+  outgoingCount: document.getElementById("outgoingCount"),
+  outgoingLinks: document.getElementById("outgoingLinks"),
+  graphStats: document.getElementById("graphStats"),
+  graphCard: document.getElementById("graphCard"),
+  graph: document.getElementById("graph"),
+  graphFullscreenBtn: document.getElementById("graphFullscreenBtn"),
+  graphResizeHandle: document.getElementById("graphResizeHandle"),
+  toast: document.getElementById("toast"),
+  commandPalette: document.getElementById("commandPalette"),
+  commandInput: document.getElementById("commandInput"),
+  commandResults: document.getElementById("commandResults"),
+  templatePicker: document.getElementById("templatePicker"),
+  templateList: document.getElementById("templateList"),
+  closeTemplateBtn: document.getElementById("closeTemplateBtn"),
+  sidebarResizer: document.getElementById("sidebarResizer"),
+  inspectorResizer: document.getElementById("inspectorResizer"),
+  editorResizer: document.getElementById("editorResizer"),
+  securityStatus: document.getElementById("securityStatus"),
+  vaultKeyLabel: document.getElementById("vaultKeyLabel"),
+  assistantTokenOutput: document.getElementById("assistantTokenOutput"),
+  generateTokenBtn: document.getElementById("generateTokenBtn"),
+  copyTokenBtn: document.getElementById("copyTokenBtn"),
+  securityExportMcpBtn: document.getElementById("securityExportMcpBtn"),
+  snapshotCount: document.getElementById("snapshotCount"),
+  snapshotHashLabel: document.getElementById("snapshotHashLabel"),
+  createSnapshotBtn: document.getElementById("createSnapshotBtn"),
+  exportSnapshotBtn: document.getElementById("exportSnapshotBtn"),
+  snapshotsList: document.getElementById("snapshotsList"),
+  repoStatus: document.getElementById("repoStatus"),
+  repoNameLabel: document.getElementById("repoNameLabel"),
+  repoMetaLine: document.getElementById("repoMetaLine"),
+  importRepoBtn: document.getElementById("importRepoBtn"),
+  exportRepoBtn: document.getElementById("exportRepoBtn"),
+  codeRepoNoteBtn: document.getElementById("codeRepoNoteBtn"),
+  repoManifestInput: document.getElementById("repoManifestInput"),
+  repoFilesList: document.getElementById("repoFilesList"),
+};
+
+const state = {
+  notes: [],
+  activeId: null,
+  search: "",
+  tagFilter: null,
+  folderFilter: null,
+  view: readStoredValue(VIEW_KEY, LEGACY_VIEW_KEY) || "split",
+  saveTimer: null,
+  starredIds: loadStarredIds(),
+  commandItems: [],
+  commandIndex: 0,
+  layout: loadLayoutSettings(),
+  layoutDragging: null,
+  graphFullscreen: false,
+  graphPositions: loadGraphPositions(),
+  graphRuntimePositions: {},
+  graphDragging: null,
+  graphClickSuppressed: false,
+  security: loadSecurityState(),
+  assistantToken: "",
+  snapshots: loadSnapshots(),
+  repo: loadRepoState(),
+};
+
+function uid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `note_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function randomBase64Url(byteLength = 32) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function createVaultId() {
+  return `vlt_${randomBase64Url(18)}`;
+}
+
+async function sha256Hex(value) {
+  if (!crypto.subtle) {
+    throw new Error("Web Crypto SHA-256 indisponible dans ce navigateur.");
+  }
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function cleanSecurityState(value) {
+  const fallback = {
+    version: 1,
+    vaultId: createVaultId(),
+    tokenHash: "",
+    tokenHint: "",
+    tokenCreatedAt: "",
+    tokenRotatedAt: "",
+    algorithm: "sha256(vaultId:token)",
+    scopes: ["notes:read", "notes:search", "manifest:read", "repo:read", "repo:search"],
+  };
+
+  if (!value || typeof value !== "object") return fallback;
+  return {
+    ...fallback,
+    vaultId: String(value.vaultId || fallback.vaultId),
+    tokenHash: String(value.tokenHash || ""),
+    tokenHint: String(value.tokenHint || ""),
+    tokenCreatedAt: String(value.tokenCreatedAt || ""),
+    tokenRotatedAt: String(value.tokenRotatedAt || value.tokenCreatedAt || ""),
+    algorithm: String(value.algorithm || fallback.algorithm),
+    scopes: Array.isArray(value.scopes) ? [...new Set([...value.scopes.map(String), ...fallback.scopes])] : fallback.scopes,
+  };
+}
+
+function loadSecurityState() {
+  try {
+    return cleanSecurityState(JSON.parse(localStorage.getItem(SECURITY_KEY) || "null"));
+  } catch {
+    return cleanSecurityState(null);
+  }
+}
+
+function persistSecurityState() {
+  localStorage.setItem(SECURITY_KEY, JSON.stringify(state.security, null, 2));
+}
+
+function assistantTokenHint(token) {
+  return `${token.slice(0, 10)}…${token.slice(-8)}`;
+}
+
+function securityExportPayload() {
+  return {
+    version: state.security.version,
+    vaultId: state.security.vaultId,
+    tokenHash: state.security.tokenHash,
+    tokenHint: state.security.tokenHint,
+    tokenCreatedAt: state.security.tokenCreatedAt,
+    tokenRotatedAt: state.security.tokenRotatedAt,
+    algorithm: state.security.algorithm,
+    scopes: state.security.scopes,
+  };
+}
+
+function stableJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+}
+
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value ?? null));
+}
+
+function cleanSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const payload = snapshot.payload && typeof snapshot.payload === "object" ? snapshot.payload : null;
+  const createdAt = String(snapshot.createdAt || payload?.createdAt || nowIso());
+  const hash = String(snapshot.hash || snapshot.contentHash || payload?.contentHash || "");
+  if (!hash) return null;
+  return {
+    version: 1,
+    id: String(snapshot.id || payload?.snapshotId || `vault@${createdAt}`),
+    createdAt,
+    hash,
+    hashAlgorithm: String(snapshot.hashAlgorithm || payload?.hashAlgorithm || "sha256(canonical snapshot.content)"),
+    summary: snapshot.summary && typeof snapshot.summary === "object" ? snapshot.summary : {},
+    payload,
+  };
+}
+
+function loadSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SNAPSHOTS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSnapshots() {
+  localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(state.snapshots.slice(0, MAX_SNAPSHOTS), null, 2));
+}
+
+function latestSnapshot() {
+  return state.snapshots[0] || null;
+}
+
+function cleanRepoFile(file) {
+  if (!file || typeof file !== "object") return null;
+  const filePath = String(file.path || "").replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!filePath) return null;
+  return {
+    path: filePath,
+    bytes: Number.isFinite(Number(file.bytes)) ? Number(file.bytes) : 0,
+    hash: String(file.hash || ""),
+    language: String(file.language || ""),
+    preview: String(file.preview || "").slice(0, 1200),
+    content: typeof file.content === "string" ? file.content : "",
+    exportPath: String(file.exportPath || ""),
+  };
+}
+
+function cleanRepoState(value) {
+  const fallback = {
+    format: "povmind-repo-manifest",
+    version: 1,
+    linked: false,
+    importedAt: "",
+    generatedAt: "",
+    name: "",
+    root: "",
+    localPath: "",
+    remote: "",
+    branch: "",
+    commit: "",
+    dirty: null,
+    treeHash: "",
+    fileCount: 0,
+    indexedCount: 0,
+    policy: {
+      mode: "read-only",
+      secretsExcluded: true,
+      respectsGitignore: true,
+    },
+    files: [],
+  };
+
+  if (!value || typeof value !== "object") return fallback;
+  const files = Array.isArray(value.files) ? value.files.map(cleanRepoFile).filter(Boolean) : [];
+  return {
+    ...fallback,
+    ...value,
+    format: String(value.format || fallback.format),
+    version: Number(value.version || 1),
+    linked: Boolean(value.linked || files.length || value.treeHash),
+    importedAt: String(value.importedAt || ""),
+    generatedAt: String(value.generatedAt || ""),
+    name: String(value.name || value.root || fallback.name),
+    root: String(value.root || ""),
+    localPath: String(value.localPath || ""),
+    remote: String(value.remote || ""),
+    branch: String(value.branch || ""),
+    commit: String(value.commit || ""),
+    dirty: typeof value.dirty === "boolean" ? value.dirty : null,
+    treeHash: String(value.treeHash || ""),
+    fileCount: Number.isFinite(Number(value.fileCount)) ? Number(value.fileCount) : files.length,
+    indexedCount: Number.isFinite(Number(value.indexedCount)) ? Number(value.indexedCount) : files.length,
+    policy: value.policy && typeof value.policy === "object" ? { ...fallback.policy, ...value.policy } : fallback.policy,
+    files,
+  };
+}
+
+function loadRepoState() {
+  try {
+    return cleanRepoState(JSON.parse(localStorage.getItem(REPO_KEY) || "null"));
+  } catch {
+    return cleanRepoState(null);
+  }
+}
+
+function persistRepoState() {
+  localStorage.setItem(REPO_KEY, JSON.stringify(state.repo, null, 2));
+}
+
+function repoIsLinked() {
+  return Boolean(state.repo?.linked && (state.repo.treeHash || state.repo.files?.length || state.repo.name));
+}
+
+function repoSummaryPayload() {
+  const repo = cleanRepoState(state.repo);
+  return {
+    linked: repoIsLinked(),
+    name: repo.name,
+    root: repo.root,
+    remote: repo.remote,
+    branch: repo.branch,
+    commit: repo.commit,
+    dirty: repo.dirty,
+    generatedAt: repo.generatedAt,
+    importedAt: repo.importedAt,
+    treeHash: repo.treeHash,
+    fileCount: repo.fileCount,
+    indexedCount: repo.indexedCount,
+    policy: repo.policy,
+  };
+}
+
+function repoExportPayload(includeFiles = true) {
+  const repo = cleanRepoState(state.repo);
+  return {
+    format: "povmind-repo-manifest",
+    version: 1,
+    exportedAt: nowIso(),
+    ...repoSummaryPayload(),
+    files: includeFiles ? repo.files.map((file) => ({ ...file })) : [],
+  };
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeTitle(title) {
+  return (title || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr-FR");
+}
+
+function normalizeFolder(folder) {
+  return String(folder || ROOT_FOLDER).trim().replace(/\s+/g, " ") || ROOT_FOLDER;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function attr(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function clampText(value, limit = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
+function formatDate(iso) {
+  try {
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
+function readStoredValue(key, legacyKey) {
+  const current = localStorage.getItem(key);
+  if (current !== null) return current;
+  return legacyKey ? localStorage.getItem(legacyKey) : null;
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function loadLayoutSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+    return {
+      sidebarWidth: finiteNumber(parsed.sidebarWidth) || DEFAULT_LAYOUT.sidebarWidth,
+      inspectorWidth: finiteNumber(parsed.inspectorWidth) || DEFAULT_LAYOUT.inspectorWidth,
+      editorPaneWidth: finiteNumber(parsed.editorPaneWidth),
+      graphHeight: finiteNumber(parsed.graphHeight) || DEFAULT_LAYOUT.graphHeight,
+    };
+  } catch {
+    return { ...DEFAULT_LAYOUT };
+  }
+}
+
+function persistLayoutSettings() {
+  localStorage.setItem(
+    LAYOUT_KEY,
+    JSON.stringify({
+      version: 1,
+      sidebarWidth: state.layout.sidebarWidth,
+      inspectorWidth: state.layout.inspectorWidth,
+      editorPaneWidth: state.layout.editorPaneWidth,
+      graphHeight: state.layout.graphHeight,
+    })
+  );
+}
+
+function clampLayout(preferredKind = null) {
+  const total = window.innerWidth || 1280;
+  const minWorkspace = total >= 1440 ? 640 : 600;
+  const handles = 16;
+  const minSidebar = 240;
+  const minInspector = 280;
+  const maxCombinedSidebars = Math.max(minSidebar + minInspector, total - handles - minWorkspace);
+  const maxSidebar = Math.min(480, Math.max(minSidebar, maxCombinedSidebars - minInspector));
+  const maxInspector = Math.min(540, Math.max(minInspector, maxCombinedSidebars - minSidebar));
+
+  state.layout.sidebarWidth = clamp(state.layout.sidebarWidth, minSidebar, maxSidebar);
+  state.layout.inspectorWidth = clamp(state.layout.inspectorWidth, minInspector, maxInspector);
+
+  const combined = state.layout.sidebarWidth + state.layout.inspectorWidth;
+  if (combined > maxCombinedSidebars) {
+    if (preferredKind === "sidebar") {
+      state.layout.sidebarWidth = clamp(maxCombinedSidebars - state.layout.inspectorWidth, minSidebar, maxSidebar);
+    } else if (preferredKind === "inspector") {
+      state.layout.inspectorWidth = clamp(maxCombinedSidebars - state.layout.sidebarWidth, minInspector, maxInspector);
+    } else {
+      state.layout.inspectorWidth = clamp(maxCombinedSidebars - state.layout.sidebarWidth, minInspector, maxInspector);
+      if (state.layout.sidebarWidth + state.layout.inspectorWidth > maxCombinedSidebars) {
+        state.layout.sidebarWidth = clamp(maxCombinedSidebars - state.layout.inspectorWidth, minSidebar, maxSidebar);
+      }
+    }
+  }
+
+  if (state.layout.editorPaneWidth) {
+    state.layout.editorPaneWidth = clampEditorPaneWidth(state.layout.editorPaneWidth);
+  }
+  state.layout.graphHeight = clampGraphHeight(state.layout.graphHeight);
+}
+
+function clampGraphHeight(height) {
+  return clamp(finiteNumber(height) || DEFAULT_LAYOUT.graphHeight, 260, Math.max(420, Math.min(820, window.innerHeight - 120)));
+}
+
+function clampEditorPaneWidth(width) {
+  const grid = els.editorGrid;
+  const gridWidth = grid?.getBoundingClientRect().width || 0;
+  if (!gridWidth) return width;
+  const resizerWidth = 8;
+  const gaps = 16;
+  const available = gridWidth - resizerWidth - gaps;
+  const minPane = 260;
+  if (available < minPane * 2) return Math.max(180, available / 2);
+  return clamp(width, minPane, available - minPane);
+}
+
+function applyLayoutSettings(preferredKind = null) {
+  clampLayout(preferredKind);
+  const root = document.documentElement;
+  root.style.setProperty("--sidebar-width", `${state.layout.sidebarWidth}px`);
+  root.style.setProperty("--inspector-width", `${state.layout.inspectorWidth}px`);
+  root.style.setProperty(
+    "--editor-pane-width",
+    state.layout.editorPaneWidth ? `${state.layout.editorPaneWidth}px` : "1fr"
+  );
+  root.style.setProperty("--graph-height", `${state.layout.graphHeight}px`);
+}
+
+function formatLocalDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatLongDate(date = new Date()) {
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function loadStarredIds() {
+  try {
+    const parsed = JSON.parse(readStoredValue(STARRED_KEY, LEGACY_STARRED_KEY) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistStarredIds() {
+  localStorage.setItem(STARRED_KEY, JSON.stringify([...state.starredIds]));
+}
+
+function isStarred(noteId) {
+  return state.starredIds.has(noteId);
+}
+
+function seedNotes() {
+  const createdAt = nowIso();
+  return [
+    {
+      id: uid(),
+      title: "Accueil",
+      folder: ROOT_FOLDER,
+      body: `# Bienvenue dans ${APP_NAME}\n\nCette app est un vault Markdown local pensé pour des carnets de notes connectés, avec une trajectoire vers des accès assistants sécurisés.\n\nCommence par créer une note, puis relie-la avec des liens de type [[Projet Alpha]] ou [[Idées]].\n\n## Fonctions incluses\n\n- Éditeur Markdown avec aperçu instantané\n- Liens wiki entre notes : [[Projet Alpha]]\n- Backlinks automatiques\n- Dossiers, favoris et templates\n- Graphe des connexions\n- Recherche et tags comme #demo ou #productivité\n- Export/import du carnet en JSON\n\n> Astuce : clique sur un lien bleu en pointillés pour créer la note manquante.`,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: uid(),
+      title: "Projet Alpha",
+      folder: "Projets",
+      body: `# Projet Alpha\n\nObjectif : construire une base de connaissances personnelle.\n\n## Liens utiles\n\n- Retour à [[Accueil]]\n- Brainstorming dans [[Idées]]\n- Suivi hebdomadaire dans [[Journal]]\n\n## Prochaine action\n\nCréer une vraie page pour chaque sujet important. #projet`,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: uid(),
+      title: "Idées",
+      folder: "Recherche",
+      body: `# Idées\n\n- Ajouter une palette de commandes\n- Ajouter une synchronisation fichier plus tard\n- Créer des modèles de notes\n- Transformer certains backlinks en tâches\n\nRelié à [[Accueil]] et [[Projet Alpha]]. #brainstorm`,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: uid(),
+      title: "Journal",
+      folder: "Journal",
+      body: `# Journal\n\n## Aujourd'hui\n\nJ'ai installé ${APP_NAME} et testé les liens [[Accueil]] → [[Projet Alpha]].\n\n## Notes rapides\n\nUtilise #journal pour retrouver les entrées quotidiennes.`,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ];
+}
+
+function documentationVaultNotes() {
+  return [
+    {
+      title: "PovMind - Index",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+    },
+    {
+      title: "PovMind - Architecture",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS/JavaScript vanilla pensée comme un vault Markdown local.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`app.js\` : modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:v1\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots et accès assistant utilisent des clés \`povmind:*\` dédiées.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]] et [[PovMind - GitHub repo]]. #povmind #architecture`,
+    },
+    {
+      title: "PovMind - Sécurité et tokens",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Sécurité et tokens\n\nL'objectif est de donner à chaque vault une clef solide pour contrôler l'accès des assistants.\n\n## Ce qui est en place\n\n- Chaque vault possède un \`vaultId\` cryptographiquement aléatoire.\n- Le bouton “Nouveau token” génère un token aléatoire \`povm_...\` avec \`crypto.getRandomValues\`.\n- PovMind stocke seulement l'empreinte \`SHA-256(vaultId:token)\`, jamais le secret complet.\n- L'export MCP embarque l'empreinte et le \`vaultId\`; le serveur MCP demande le token via \`POVMIND_VAULT_TOKEN\`.\n- La politique d'accès déclare les scopes \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\` et \`repo:search\`.\n\n## Ce que cela protège\n\nLe bundle MCP ne peut pas être lu par un assistant sans le token correspondant. Le token peut être régénéré depuis PovMind pour invalider l'ancien accès.\n\n## À ajouter plus tard\n\n- Chiffrement at-rest des notes avec Web Crypto AES-GCM.\n- Déverrouillage par passphrase locale.\n- Rotation de tokens par assistant ou par rôle.\n- Journal d'accès côté backend si PovMind devient multi-utilisateur.\n\nVoir [[PovMind - MCP assistant]]. #povmind #securite`,
+    },
+    {
+      title: "PovMind - Snapshots du vault",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Snapshots du vault\n\nUn snapshot fige l'état exact du vault à un instant donné. Le journal raconte le pourquoi; le snapshot conserve le quoi.\n\n## Contenu d'un snapshot\n\n- Notes complètes.\n- Note active et favoris.\n- Graphe et positions de nœuds.\n- Layout et mode de vue.\n- Manifest Codex/MCP.\n- Manifest repo lié, commit et \`repoTreeHash\`.\n- Politique token assistant, sans secret complet.\n- Hash global \`contentHash\` calculé sur un JSON canonique.\n\n## Rôle du hash global\n\nLe hash permet à un assistant de dire : “je travaille sur le contexte exact \`sha256:...\`”. Si le vault change, le prochain snapshot aura un autre hash.\n\n## Relation avec le journal\n\nLe journal reste utile pour les décisions humaines. Le snapshot sert de preuve d'état et de point de restauration/export.\n\n## À améliorer\n\n- Comparer deux snapshots.\n- Restaurer un snapshot après confirmation.\n- Créer un changelog depuis le journal.\n- Ajouter des snapshots signés avec une clef du vault.\n\n#povmind #snapshot #versioning`,
+    },
+    {
+      title: "PovMind - Code repo",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Code repo\n\nLe principe du vault est d'ancrer la mémoire au code réel. Un vault utile doit connaître le repo auquel il se rapporte.\n\n## Rôle du repo dans PovMind\n\n- Le vault documente les décisions, le contexte et les liens.\n- Le repo contient le code exécutable, les tests et l'historique Git.\n- Le snapshot lie les deux avec \`vaultHash\` + \`repoCommit\` + \`repoTreeHash\`.\n- L'export MCP expose le repo en lecture seule pour que l'assistant cite et inspecte le code réel.\n\n## Flux recommandé\n\n1. Depuis le repo, générer un manifeste : \`npm run repo:manifest -- /chemin/du/repo\`.\n2. Importer le JSON dans le panneau “Code repo”.\n3. Créer un snapshot du vault.\n4. Exporter MCP pour donner à l'assistant le contexte notes + code.\n\n## Sécurité\n\nLe manifeste exclut \`.env\`, secrets, tokens, dossiers lourds et fichiers ignorés par Git quand possible. L'intégration est read-only par défaut.\n\n## Outils MCP liés\n\n- \`povmind.repo_manifest\`\n- \`povmind.repo_list_files\`\n- \`povmind.repo_search\`\n- \`povmind.repo_read_file\`\n\n#povmind #repo #code`,
+    },
+    {
+      title: "PovMind - GitHub repo",
+      folder: "Documentation PovMind",
+      body: `# PovMind - GitHub repo\n\nGitHub est le registre exécutable de PovMind : code, revues, CI, historique et liens vers les snapshots du vault.\n\n## Contrat\n\n- \`main\` doit rester déployable.\n- Chaque changement durable doit passer par \`npm run check\`.\n- La CI GitHub vérifie la synchronisation de version, la syntaxe et le manifest repo.\n- Le repo ne doit jamais contenir \`.env\`, tokens, exports MCP, zips ou dossiers \`output/\`.\n\n## Fichiers GitHub\n\n- \`.gitignore\` : exclusions locales et secrets.\n- \`.github/workflows/ci.yml\` : contrôle continu.\n- \`SECURITY.md\` : modèle de sécurité actuel.\n\n## Lien avec le vault\n\nUn snapshot doit pouvoir citer un commit Git et un \`repoTreeHash\`. L'assistant peut ensuite lire les notes, le manifest repo et les fichiers exportés via MCP.\n\nVoir [[PovMind - Code repo]] et [[PovMind - Snapshots du vault]]. #github #repo #ci`,
+    },
+    {
+      title: "PovMind - MCP assistant",
+      folder: "Documentation PovMind",
+      body: `# PovMind - MCP assistant\n\nPovMind exporte un bundle MCP pour connecter le vault à un assistant sans exposer toute l'app web.\n\n## Transport\n\nLe bundle utilise le transport MCP \`stdio\`, donc le client lance un serveur local Node qui communique en JSON-RPC ligne par ligne.\n\n## Authentification\n\nLe serveur lit \`POVMIND_VAULT_TOKEN\`, calcule \`SHA-256(vaultId:token)\` et compare cette empreinte à celle exportée avec le vault.\n\n## Outils exposés\n\n- \`povmind.search\` : rechercher dans les notes.\n- \`povmind.read_note\` : lire une note par titre, slug ou chemin.\n- \`povmind.list_notes\` : lister les notes avec filtres simples.\n- \`povmind.vault_manifest\` : lire les métadonnées du vault.\n- \`povmind.repo_manifest\` : lire le repo lié au vault.\n- \`povmind.repo_list_files\` : découvrir les chemins exportés.\n- \`povmind.repo_search\` : chercher dans le code exporté.\n- \`povmind.repo_read_file\` : lire un fichier code précis.\n\n## Ressources exposées\n\n- \`povmind://vault/manifest\`\n- \`povmind://notes/{slug}\`\n- \`povmind://repo/manifest\`\n- \`povmind://repo/files/{path}\`\n\n## Principe produit\n\nL'assistant ne devient puissant que si le contexte est clair. Le vault “Documentation PovMind” sert donc de banc d'essai pour documenter décisions, limites, repo lié et backlog.\n\n#povmind #mcp #assistant`,
+    },
+    {
+      title: "PovMind - Déploiement Cloud Run",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Déploiement Cloud Run\n\nPovMind est déployé sur Cloud Run via un conteneur Node statique.\n\n## URL actuelle\n\nhttps://povmind-472136847189.europe-west1.run.app\n\n## Commande de déploiement\n\n\`\`\`bash\ngcloud run deploy povmind \\\n  --source . \\\n  --project campaign-truth-prod \\\n  --region europe-west1 \\\n  --allow-unauthenticated\n\`\`\`\n\n## Points de production\n\n- \`/healthz\` pour la supervision.\n- \`/version\` pour diagnostiquer la révision.\n- CSP, anti-framing, permissions minimales et referrer policy.\n- PWA manifest, service worker, robots et sitemap.\n\nVoir [[PovMind - Backlog contexte]]. #povmind #cloudrun`,
+    },
+    {
+      title: "PovMind - Backlog contexte",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## À prioriser\n\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un connecteur Cloud Run sécurisé pour synchroniser plusieurs appareils.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n\n#povmind #backlog #contexte`,
+    },
+  ];
+}
+
+function ensureDocumentationVault(options = {}) {
+  const { select = false, silent = false } = options;
+  const createdAt = nowIso();
+  const created = [];
+  for (const doc of documentationVaultNotes()) {
+    if (findNoteByTitle(doc.title)) continue;
+    created.push({
+      id: uid(),
+      title: doc.title,
+      folder: doc.folder,
+      body: doc.body,
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+
+  if (created.length) {
+    state.notes = [...created, ...state.notes];
+    localStorage.setItem(DOC_VAULT_KEY, nowIso());
+    persistNow(false);
+  }
+
+  const indexNote = findNoteByTitle("PovMind - Index");
+  if (select && indexNote) {
+    state.folderFilter = "Documentation PovMind";
+    state.search = "";
+    els.searchInput.value = "";
+    state.activeId = indexNote.id;
+    persistNow(false);
+  }
+
+  if (created.length || select) renderAll();
+  if (!silent) toast(created.length ? "Vault documentation PovMind créé." : "Vault documentation PovMind ouvert.");
+}
+
+function loadStore() {
+  const raw = readStoredValue(STORAGE_KEY, LEGACY_STORAGE_KEY);
+  if (!raw) {
+    state.notes = seedNotes();
+    state.activeId = state.notes[0]?.id || null;
+    state.starredIds = new Set(state.activeId ? [state.activeId] : []);
+    persistStarredIds();
+    persistNow(false);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    state.notes = Array.isArray(parsed.notes) ? parsed.notes.map(cleanNote).filter(Boolean) : [];
+    state.activeId = parsed.activeId && state.notes.some((note) => note.id === parsed.activeId)
+      ? parsed.activeId
+      : state.notes[0]?.id || null;
+    if (Array.isArray(parsed.starredIds)) {
+      state.starredIds = new Set(parsed.starredIds.map(String).filter((id) => state.notes.some((note) => note.id === id)));
+      persistStarredIds();
+    }
+    if (!state.notes.length) {
+      state.notes = seedNotes();
+      state.activeId = state.notes[0].id;
+      state.starredIds = new Set([state.activeId]);
+      persistStarredIds();
+    }
+  } catch {
+    state.notes = seedNotes();
+    state.activeId = state.notes[0].id;
+    state.starredIds = new Set([state.activeId]);
+    persistStarredIds();
+    toast("Données locales réparées avec la démo.");
+  }
+}
+
+function cleanNote(note) {
+  if (!note || typeof note !== "object") return null;
+  const createdAt = note.createdAt || nowIso();
+  return {
+    id: String(note.id || uid()),
+    title: String(note.title || "Sans titre"),
+    folder: normalizeFolder(note.folder),
+    body: String(note.body || ""),
+    createdAt,
+    updatedAt: note.updatedAt || createdAt,
+  };
+}
+
+function persistNow(showSaved = true) {
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      activeId: state.activeId,
+      starredIds: [...state.starredIds],
+      notes: state.notes,
+    })
+  );
+  if (showSaved) {
+    els.savedStatus.textContent = "Sauvegardé";
+  }
+}
+
+function queueSave() {
+  els.savedStatus.textContent = "Sauvegarde…";
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(() => persistNow(true), 220);
+}
+
+function activeNote() {
+  return state.notes.find((note) => note.id === state.activeId) || null;
+}
+
+function findNoteByTitle(title) {
+  const wanted = normalizeTitle(title);
+  return state.notes.find((note) => normalizeTitle(note.title) === wanted) || null;
+}
+
+function uniqueTitle(baseTitle) {
+  const base = String(baseTitle || "Nouvelle note").trim() || "Nouvelle note";
+  if (!findNoteByTitle(base)) return base;
+  let index = 2;
+  while (findNoteByTitle(`${base} ${index}`)) index += 1;
+  return `${base} ${index}`;
+}
+
+function createNote(title = "Nouvelle note", body = "", options = {}) {
+  const createdAt = nowIso();
+  const note = {
+    id: uid(),
+    title: uniqueTitle(title),
+    folder: normalizeFolder(options.folder || state.folderFilter || activeNote()?.folder || ROOT_FOLDER),
+    body,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  state.notes.unshift(note);
+  state.activeId = note.id;
+  queueSave();
+  renderAll();
+  requestAnimationFrame(() => els.titleInput.select());
+  toast("Note créée.");
+  return note;
+}
+
+function deleteActiveNote() {
+  const note = activeNote();
+  if (!note) return;
+  const ok = confirm(`Supprimer définitivement « ${note.title} » ?`);
+  if (!ok) return;
+  const index = state.notes.findIndex((item) => item.id === note.id);
+  state.notes.splice(index, 1);
+  state.starredIds.delete(note.id);
+  persistStarredIds();
+  state.activeId = state.notes[Math.max(0, index - 1)]?.id || state.notes[0]?.id || null;
+  if (!state.activeId) createNote("Accueil", "# Accueil\n\nTon carnet est prêt.");
+  queueSave();
+  renderAll();
+  toast("Note supprimée.");
+}
+
+function selectNote(id) {
+  if (!state.notes.some((note) => note.id === id)) return;
+  state.activeId = id;
+  persistNow(false);
+  renderAll();
+}
+
+function updateActiveNote(patch) {
+  const note = activeNote();
+  if (!note) return;
+  Object.assign(note, patch, { updatedAt: nowIso() });
+  queueSave();
+}
+
+function extractWikiLinks(text) {
+  const links = [];
+  const regex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  let match;
+  while ((match = regex.exec(text || ""))) {
+    const title = match[1].trim();
+    if (title) links.push(title);
+  }
+  return links;
+}
+
+function extractTags(text) {
+  const tags = new Set();
+  const regex = /(^|[\s([{])#([\p{L}\p{N}_-]{2,})/gu;
+  let match;
+  while ((match = regex.exec(text || ""))) {
+    tags.add(match[2].toLocaleLowerCase("fr-FR"));
+  }
+  return [...tags].sort((a, b) => a.localeCompare(b, "fr"));
+}
+
+function tagsForNote(note) {
+  return extractTags(`${note.title}\n${note.body}`);
+}
+
+function allTags() {
+  const counts = new Map();
+  for (const note of state.notes) {
+    for (const tag of tagsForNote(note)) counts.set(tag, (counts.get(tag) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
+}
+
+function allFolders() {
+  const counts = new Map();
+  for (const note of state.notes) {
+    const folder = normalizeFolder(note.folder);
+    counts.set(folder, (counts.get(folder) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => {
+    if (a[0] === ROOT_FOLDER) return -1;
+    if (b[0] === ROOT_FOLDER) return 1;
+    return a[0].localeCompare(b[0], "fr");
+  });
+}
+
+function graphStats() {
+  const { edges } = buildGraph();
+  return {
+    notes: state.notes.length,
+    folders: allFolders().length,
+    links: edges.length,
+  };
+}
+
+function filteredNotes() {
+  const query = state.search.trim().toLocaleLowerCase("fr-FR");
+  return state.notes
+    .filter((note) => {
+      const haystack = `${note.title}\n${note.body}`.toLocaleLowerCase("fr-FR");
+      const queryOk = !query || haystack.includes(query);
+      const tagOk = !state.tagFilter || tagsForNote(note).includes(state.tagFilter);
+      const folderOk = !state.folderFilter || normalizeFolder(note.folder) === state.folderFilter;
+      return queryOk && tagOk && folderOk;
+    })
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function renderVaultStats() {
+  const stats = graphStats();
+  els.vaultStats.innerHTML = `
+    <div class="vault-stat"><strong>${stats.notes}</strong><span>notes</span></div>
+    <div class="vault-stat"><strong>${stats.links}</strong><span>liens</span></div>
+    <div class="vault-stat"><strong>${stats.folders}</strong><span>dossiers</span></div>`;
+}
+
+function renderSecurityPanel() {
+  const sealed = Boolean(state.security.tokenHash);
+  els.securityStatus.textContent = sealed ? "Scellé" : "À sceller";
+  els.vaultKeyLabel.textContent = state.security.vaultId;
+  els.assistantTokenOutput.value = state.assistantToken || "";
+  els.assistantTokenOutput.placeholder = sealed
+    ? `Token actif : ${state.security.tokenHint || "hash enregistré"}`
+    : "Générer un token assistant";
+  els.copyTokenBtn.disabled = !state.assistantToken;
+  els.securityExportMcpBtn.disabled = false;
+  els.exportMcpBtn.disabled = false;
+}
+
+function formatSnapshotDate(iso) {
+  try {
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+function renderSnapshotsPanel() {
+  const latest = latestSnapshot();
+  els.snapshotCount.textContent = String(state.snapshots.length);
+  els.snapshotHashLabel.textContent = latest ? `${latest.hash.slice(0, 12)}…` : "Aucun";
+  els.exportSnapshotBtn.disabled = !latest;
+
+  if (!state.snapshots.length) {
+    els.snapshotsList.innerHTML = `<div class="empty-state">Aucun snapshot. Crée un point stable avant un gros changement.</div>`;
+    return;
+  }
+
+  els.snapshotsList.innerHTML = state.snapshots
+    .slice(0, 6)
+    .map((snapshot) => {
+      const summary = snapshot.summary || {};
+      const active = summary.activeTitle ? ` · ${summary.activeTitle}` : "";
+      return `
+        <button class="snapshot-row" type="button" data-snapshot-id="${attr(snapshot.id)}" title="Exporter ${attr(snapshot.id)}">
+          <span>
+            <strong>${escapeHtml(formatSnapshotDate(snapshot.createdAt))}</strong>
+            <small>${escapeHtml(snapshot.hash.slice(0, 16))}</small>
+          </span>
+          <em>${Number(summary.noteCount || 0)} notes · ${Number(summary.linkCount || 0)} liens${escapeHtml(active)}</em>
+        </button>`;
+    })
+    .join("");
+}
+
+function shortHash(value) {
+  return value ? `${String(value).slice(0, 12)}…` : "—";
+}
+
+function renderRepoPanel() {
+  const linked = repoIsLinked();
+  const repo = cleanRepoState(state.repo);
+  els.repoStatus.textContent = linked ? "Lié" : "Non lié";
+  els.repoNameLabel.textContent = linked ? (repo.name || repo.root || "Repo") : "—";
+  els.exportRepoBtn.disabled = !linked;
+  els.codeRepoNoteBtn.disabled = !linked;
+
+  if (!linked) {
+    els.repoMetaLine.textContent = "Importe un manifeste généré depuis le repo.";
+    els.repoFilesList.innerHTML = `<div class="empty-state">Aucun repo lié. Lance npm run repo:manifest puis importe le JSON.</div>`;
+    return;
+  }
+
+  const status = repo.dirty === true ? "dirty" : repo.dirty === false ? "clean" : "inconnu";
+  const branch = repo.branch || "branche ?";
+  const commit = repo.commit ? repo.commit.slice(0, 8) : "commit ?";
+  els.repoMetaLine.textContent = `${branch} @ ${commit} · ${status} · ${repo.indexedCount} fichier(s) indexé(s) · ${shortHash(repo.treeHash)}`;
+
+  if (!repo.files.length) {
+    els.repoFilesList.innerHTML = `<div class="empty-state">Repo lié sans fichiers exportés.</div>`;
+    return;
+  }
+
+  els.repoFilesList.innerHTML = repo.files
+    .slice(0, MAX_REPO_FILES_RENDERED)
+    .map((file) => `
+      <div class="repo-file-row">
+        <strong>${escapeHtml(file.path)}</strong>
+        <span>${escapeHtml(file.language || "texte")} · ${Number(file.bytes || 0)} o · ${escapeHtml(shortHash(file.hash))}</span>
+      </div>`)
+    .join("");
+}
+
+function renderNotesList() {
+  const notes = filteredNotes();
+  if (!notes.length) {
+    els.notesList.innerHTML = `<div class="empty-state">Aucune note trouvée. Crée une note ou retire le filtre actif.</div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const note of notes) {
+    const folder = normalizeFolder(note.folder);
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder).push(note);
+  }
+
+  els.notesList.innerHTML = [...groups.entries()]
+    .map(([folder, groupNotes]) => `
+      <section class="note-group">
+        <div class="note-group-title"><span>${escapeHtml(folder)}</span><span>${groupNotes.length}</span></div>
+        ${groupNotes.map((note) => {
+          const active = note.id === state.activeId ? " active" : "";
+          const snippet = clampText(note.body.replace(/[#*_`\[\]]/g, ""), 94) || "Note vide";
+          const star = isStarred(note.id) ? `<span class="note-row-star" aria-hidden="true">★</span>` : "";
+          return `
+            <button class="note-row${active}" type="button" data-note-id="${attr(note.id)}">
+              <span class="note-row-title">
+                <span>${escapeHtml(note.title)}</span>
+                <span>${star}<span class="note-row-time">${escapeHtml(formatDate(note.updatedAt))}</span></span>
+              </span>
+              <span class="note-row-snippet">${escapeHtml(snippet)}</span>
+            </button>`;
+        }).join("")}
+      </section>`)
+    .join("");
+}
+
+function renderTagFilters() {
+  const tags = allTags();
+  if (!tags.length) {
+    els.tagFilters.innerHTML = "";
+    return;
+  }
+
+  const clear = state.tagFilter
+    ? `<button class="tag-chip active" type="button" data-tag-clear="true">Tous ×</button>`
+    : "";
+
+  els.tagFilters.innerHTML =
+    clear +
+    tags
+      .slice(0, 16)
+      .map(([tag, count]) => {
+        const active = tag === state.tagFilter ? " active" : "";
+        return `<button class="tag-chip${active}" type="button" data-tag="${attr(tag)}">#${escapeHtml(tag)} <small>${count}</small></button>`;
+      })
+      .join("");
+}
+
+function renderFolderFilters() {
+  const folders = allFolders();
+  if (!folders.length) {
+    els.folderFilters.innerHTML = "";
+    return;
+  }
+
+  const clear = state.folderFilter
+    ? `<button class="folder-chip active" type="button" data-folder-clear="true">Tous ×</button>`
+    : "";
+
+  els.folderFilters.innerHTML =
+    clear +
+    folders
+      .map(([folder, count]) => {
+        const active = folder === state.folderFilter ? " active" : "";
+        return `<button class="folder-chip${active}" type="button" data-folder="${attr(folder)}">${escapeHtml(folder)} <small>${count}</small></button>`;
+      })
+      .join("");
+}
+
+function renderFolderSuggestions() {
+  els.folderSuggestions.innerHTML = allFolders()
+    .map(([folder]) => `<option value="${attr(folder)}"></option>`)
+    .join("");
+}
+
+function renderStarredList() {
+  const starred = state.notes
+    .filter((note) => isStarred(note.id))
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+  if (!starred.length) {
+    els.starredList.innerHTML = `<div class="empty-state">Aucun favori.</div>`;
+    return;
+  }
+
+  els.starredList.innerHTML = starred
+    .map((note) => `
+      <button class="mini-note" type="button" data-note-id="${attr(note.id)}">
+        ${escapeHtml(note.title)}
+        <span>${escapeHtml(normalizeFolder(note.folder))}</span>
+      </button>`)
+    .join("");
+}
+
+function renderActiveNote() {
+  const note = activeNote();
+  if (!note) return;
+  els.titleInput.value = note.title;
+  els.folderInput.value = normalizeFolder(note.folder);
+  els.editor.value = note.body;
+  els.wordCount.textContent = `${countWords(note.body)} ${countWords(note.body) > 1 ? "mots" : "mot"}`;
+  els.editorGrid.dataset.view = state.view;
+  els.viewModeBtn.textContent = state.view === "split" ? "Split" : state.view === "edit" ? "Éditeur" : "Aperçu";
+  const starred = isStarred(note.id);
+  els.starNoteBtn.textContent = starred ? "★" : "☆";
+  els.starNoteBtn.setAttribute("aria-pressed", String(starred));
+  els.starNoteBtn.setAttribute("aria-label", starred ? "Retirer des favoris" : "Ajouter aux favoris");
+  els.starNoteBtn.title = starred ? "Retirer des favoris" : "Ajouter aux favoris";
+}
+
+function countWords(text) {
+  return (String(text || "").trim().match(/[\p{L}\p{N}’'-]+/gu) || []).length;
+}
+
+function renderPreview() {
+  const note = activeNote();
+  if (!note) {
+    els.preview.innerHTML = `<p>Aucune note active.</p>`;
+    return;
+  }
+  els.preview.innerHTML = markdownToHtml(note.body || "");
+}
+
+function markdownToHtml(markdown) {
+  const codeBlocks = [];
+  let source = String(markdown || "");
+
+  source = source.replace(/```([\w-]+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const token = `@@CODE_BLOCK_${codeBlocks.length}@@`;
+    codeBlocks.push(`<pre><code${lang ? ` data-lang="${attr(lang)}"` : ""}>${escapeHtml(code.trimEnd())}</code></pre>`);
+    return `\n${token}\n`;
+  });
+
+  source = escapeHtml(source);
+  source = source.replace(/\r\n/g, "\n");
+  source = source.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, rawTitle, rawLabel) => {
+    const title = String(rawTitle || "").trim();
+    const label = String(rawLabel || rawTitle || "").trim();
+    const exists = !!findNoteByTitle(unescapeHtml(title));
+    return `<a href="#" class="wikilink${exists ? "" : " missing"}" data-note-title="${attr(unescapeHtml(title))}">${escapeHtml(unescapeHtml(label))}</a>`;
+  });
+  source = source.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, `<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>`);
+  source = source.replace(/`([^`]+)`/g, `<code>$1</code>`);
+  source = source.replace(/\*\*([^*]+)\*\*/g, `<strong>$1</strong>`);
+  source = source.replace(/__([^_]+)__/g, `<strong>$1</strong>`);
+  source = source.replace(/(^|\s)\*([^*\n]+)\*/g, `$1<em>$2</em>`);
+  source = source.replace(/(^|\s)_([^_\n]+)_/g, `$1<em>$2</em>`);
+  source = source.replace(/~~([^~]+)~~/g, `<del>$1</del>`);
+
+  const lines = source.split("\n");
+  const out = [];
+  let inUl = false;
+  let inOl = false;
+  let inBlockquote = false;
+
+  const closeLists = () => {
+    if (inUl) out.push("</ul>");
+    if (inOl) out.push("</ol>");
+    inUl = false;
+    inOl = false;
+  };
+  const closeBlockquote = () => {
+    if (inBlockquote) out.push("</blockquote>");
+    inBlockquote = false;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeLists();
+      closeBlockquote();
+      continue;
+    }
+
+    if (/^@@CODE_BLOCK_\d+@@$/.test(trimmed)) {
+      closeLists();
+      closeBlockquote();
+      out.push(trimmed);
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      closeLists();
+      closeBlockquote();
+      out.push("<hr>");
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      closeLists();
+      closeBlockquote();
+      const level = heading[1].length;
+      out.push(`<h${level}>${heading[2]}</h${level}>`);
+      continue;
+    }
+
+    const quote = trimmed.match(/^&gt;\s?(.+)$/);
+    if (quote) {
+      closeLists();
+      if (!inBlockquote) {
+        out.push("<blockquote>");
+        inBlockquote = true;
+      }
+      out.push(`<p>${quote[1]}</p>`);
+      continue;
+    }
+
+    const task = trimmed.match(/^[-*+]\s+\[( |x|X)\]\s+(.+)$/);
+    if (task) {
+      closeBlockquote();
+      if (inOl) {
+        out.push("</ol>");
+        inOl = false;
+      }
+      if (!inUl) {
+        out.push("<ul>");
+        inUl = true;
+      }
+      const checked = task[1].toLocaleLowerCase("fr-FR") === "x" ? " checked" : "";
+      out.push(`<li class="task-item"><input type="checkbox" disabled${checked}> <span>${task[2]}</span></li>`);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+    if (unordered) {
+      closeBlockquote();
+      if (inOl) {
+        out.push("</ol>");
+        inOl = false;
+      }
+      if (!inUl) {
+        out.push("<ul>");
+        inUl = true;
+      }
+      out.push(`<li>${unordered[1]}</li>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      closeBlockquote();
+      if (inUl) {
+        out.push("</ul>");
+        inUl = false;
+      }
+      if (!inOl) {
+        out.push("<ol>");
+        inOl = true;
+      }
+      out.push(`<li>${ordered[1]}</li>`);
+      continue;
+    }
+
+    closeLists();
+    closeBlockquote();
+    out.push(`<p>${trimmed}</p>`);
+  }
+
+  closeLists();
+  closeBlockquote();
+
+  let html = out.join("\n");
+  codeBlocks.forEach((block, index) => {
+    html = html.replace(`@@CODE_BLOCK_${index}@@`, block);
+  });
+  return html || `<p class="empty-state">Note vide.</p>`;
+}
+
+function unescapeHtml(value) {
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
+function renderBacklinks() {
+  const note = activeNote();
+  if (!note) return;
+  const wanted = normalizeTitle(note.title);
+  const backlinks = state.notes.filter((candidate) => {
+    if (candidate.id === note.id) return false;
+    return extractWikiLinks(candidate.body).some((title) => normalizeTitle(title) === wanted);
+  });
+
+  els.backlinkCount.textContent = String(backlinks.length);
+  if (!backlinks.length) {
+    els.backlinks.innerHTML = `<div class="empty-state">Aucune note ne pointe encore vers celle-ci.</div>`;
+    return;
+  }
+
+  els.backlinks.innerHTML = backlinks
+    .map((item) => {
+      const snippet = backlinkSnippet(item.body, note.title);
+      return `
+        <button class="backlink-card" type="button" data-note-id="${attr(item.id)}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <p>${escapeHtml(snippet || clampText(item.body, 110))}</p>
+        </button>`;
+    })
+    .join("");
+}
+
+function backlinkSnippet(body, title) {
+  const plain = String(body || "").replace(/\s+/g, " ").trim();
+  const link = `[[${title}`.toLocaleLowerCase("fr-FR");
+  const index = plain.toLocaleLowerCase("fr-FR").indexOf(link);
+  if (index < 0) return clampText(plain, 110);
+  const start = Math.max(0, index - 42);
+  return clampText(`${start > 0 ? "…" : ""}${plain.slice(start, index + 68)}`, 120);
+}
+
+function renderNoteTags() {
+  const note = activeNote();
+  const tags = note ? tagsForNote(note) : [];
+  if (!tags.length) {
+    els.noteTags.innerHTML = `<div class="empty-state">Aucun tag dans cette note.</div>`;
+    return;
+  }
+  els.noteTags.innerHTML = tags
+    .map((tag) => `<button class="tag-chip" type="button" data-tag="${attr(tag)}">#${escapeHtml(tag)}</button>`)
+    .join("");
+}
+
+function outgoingTargetsForNote(note) {
+  if (!note) return [];
+  return uniqueWikiTargets(note.body).map((target) => {
+    const linked = findNoteByTitle(target.title);
+    return {
+      title: target.title,
+      note: linked,
+      missing: !linked,
+    };
+  });
+}
+
+function renderOutgoingLinks() {
+  const note = activeNote();
+  const targets = outgoingTargetsForNote(note);
+  els.outgoingCount.textContent = String(targets.length);
+
+  if (!targets.length) {
+    els.outgoingLinks.innerHTML = `<div class="empty-state">Aucun lien wiki sortant.</div>`;
+    return;
+  }
+
+  els.outgoingLinks.innerHTML = targets
+    .map((target) => {
+      const folder = target.note ? normalizeFolder(target.note.folder) : "Note manquante";
+      const idAttr = target.note ? ` data-note-id="${attr(target.note.id)}"` : "";
+      return `
+        <button class="link-card${target.missing ? " missing" : ""}" type="button" data-note-title="${attr(target.title)}"${idAttr}>
+          ${escapeHtml(target.title)}
+          <span>${escapeHtml(folder)}</span>
+        </button>`;
+    })
+    .join("");
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampGraphPosition(position) {
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x: clamp(x, 28, 512),
+    y: clamp(y, 32, 348),
+  };
+}
+
+function loadGraphPositions() {
+  try {
+    const raw = readStoredValue(GRAPH_LAYOUT_KEY, LEGACY_GRAPH_LAYOUT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const positions = parsed?.positions && typeof parsed.positions === "object" ? parsed.positions : parsed;
+    if (!positions || typeof positions !== "object") return {};
+
+    return Object.fromEntries(
+      Object.entries(positions)
+        .map(([nodeId, position]) => [nodeId, clampGraphPosition(position)])
+        .filter(([, position]) => position)
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistGraphPositions() {
+  localStorage.setItem(
+    GRAPH_LAYOUT_KEY,
+    JSON.stringify({
+      version: 1,
+      updatedAt: nowIso(),
+      positions: state.graphPositions,
+    })
+  );
+}
+
+function buildDefaultGraphPositions(nodes) {
+  const width = 540;
+  const height = 380;
+  const cx = width / 2;
+  const cy = height / 2;
+  const positions = new Map();
+  const activeIndex = nodes.findIndex((node) => node.id === state.activeId);
+  const ordered = activeIndex > -1 ? [nodes[activeIndex], ...nodes.filter((_, index) => index !== activeIndex)] : nodes;
+
+  if (ordered.length === 1) {
+    positions.set(ordered[0].id, { x: cx, y: cy });
+    return positions;
+  }
+
+  ordered.forEach((node, index) => {
+    if (node.id === state.activeId) {
+      positions.set(node.id, { x: cx, y: cy });
+      return;
+    }
+
+    const ringIndex = index - (activeIndex > -1 ? 1 : 0);
+    const count = ordered.length - (activeIndex > -1 ? 1 : 0);
+    const angle = (ringIndex / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2;
+    const radius = count > 18 ? 156 : 128;
+    const wobble = (ringIndex % 3) * 18;
+    positions.set(node.id, {
+      x: cx + Math.cos(angle) * (radius + wobble),
+      y: cy + Math.sin(angle) * (radius + wobble * 0.55),
+    });
+  });
+
+  return positions;
+}
+
+function resolveGraphPositions(nodes) {
+  const defaults = buildDefaultGraphPositions(nodes);
+  const resolved = {};
+
+  for (const node of nodes) {
+    resolved[node.id] = clampGraphPosition(state.graphPositions[node.id]) || defaults.get(node.id);
+  }
+
+  state.graphRuntimePositions = resolved;
+  return new Map(Object.entries(resolved));
+}
+
+function graphPointFromEvent(event) {
+  const matrix = els.graph.getScreenCTM();
+  if (!matrix) return null;
+  const point = els.graph.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(matrix.inverse());
+}
+
+function graphNodeElement(nodeId) {
+  return [...els.graph.querySelectorAll("[data-node-id]")].find((node) => node.dataset.nodeId === nodeId) || null;
+}
+
+function updateGraphNodePosition(nodeId, position) {
+  const node = graphNodeElement(nodeId);
+  if (node) node.setAttribute("transform", `translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})`);
+  updateGraphEdges();
+}
+
+function updateGraphEdges() {
+  for (const line of els.graph.querySelectorAll("line[data-edge-from][data-edge-to]")) {
+    const from = state.graphRuntimePositions[line.dataset.edgeFrom];
+    const to = state.graphRuntimePositions[line.dataset.edgeTo];
+    if (!from || !to) continue;
+    line.setAttribute("x1", from.x.toFixed(1));
+    line.setAttribute("y1", from.y.toFixed(1));
+    line.setAttribute("x2", to.x.toFixed(1));
+    line.setAttribute("y2", to.y.toFixed(1));
+  }
+}
+
+function handleGraphPointerDown(event) {
+  const node = event.target.closest("[data-node-id]");
+  if (!node || !els.graph.contains(node)) return;
+
+  const start = graphPointFromEvent(event);
+  if (!start) return;
+
+  const nodeId = node.dataset.nodeId;
+  const current = state.graphRuntimePositions[nodeId] || clampGraphPosition(state.graphPositions[nodeId]);
+  if (!current) return;
+
+  state.graphDragging = {
+    nodeId,
+    pointerId: event.pointerId,
+    startX: start.x,
+    startY: start.y,
+    baseX: current.x,
+    baseY: current.y,
+    moved: false,
+  };
+
+  node.classList.add("dragging");
+  els.graph.classList.add("dragging");
+  els.graph.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function handleGraphPointerMove(event) {
+  const drag = state.graphDragging;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+
+  const point = graphPointFromEvent(event);
+  if (!point) return;
+
+  const dx = point.x - drag.startX;
+  const dy = point.y - drag.startY;
+  if (Math.hypot(dx, dy) > 3) drag.moved = true;
+
+  const next = clampGraphPosition({
+    x: drag.baseX + dx,
+    y: drag.baseY + dy,
+  });
+  if (!next) return;
+
+  state.graphPositions[drag.nodeId] = next;
+  state.graphRuntimePositions[drag.nodeId] = next;
+  updateGraphNodePosition(drag.nodeId, next);
+  event.preventDefault();
+}
+
+function handleGraphPointerUp(event) {
+  const drag = state.graphDragging;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+
+  const node = graphNodeElement(drag.nodeId);
+  node?.classList.remove("dragging");
+  els.graph.classList.remove("dragging");
+  els.graph.releasePointerCapture?.(event.pointerId);
+  state.graphDragging = null;
+
+  if (drag.moved) {
+    state.graphClickSuppressed = true;
+    setTimeout(() => {
+      state.graphClickSuppressed = false;
+    }, 160);
+    persistGraphPositions();
+  } else {
+    state.graphClickSuppressed = true;
+    setTimeout(() => {
+      state.graphClickSuppressed = false;
+    }, 160);
+    openGraphNode(drag.nodeId, node?.dataset.noteTitle);
+  }
+}
+
+function openGraphNode(nodeId, title) {
+  const cleanTitle = title || "Nouvelle note";
+  if (nodeId.startsWith("missing:")) {
+    const previousPosition = state.graphRuntimePositions[nodeId] || state.graphPositions[nodeId];
+    const note = createNote(cleanTitle, `# ${cleanTitle}\n\n`);
+    if (previousPosition) {
+      state.graphPositions[note.id] = previousPosition;
+      delete state.graphPositions[nodeId];
+      persistGraphPositions();
+    }
+    selectNote(note.id);
+  } else {
+    selectNote(nodeId);
+  }
+  revealActiveNoteFromGraph();
+}
+
+function revealActiveNoteFromGraph() {
+  if (state.graphFullscreen) toggleGraphFullscreen(false);
+  const note = activeNote();
+  requestAnimationFrame(() => {
+    document.querySelector(".workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    els.titleInput.focus({ preventScroll: true });
+    if (note) toast(`Note ouverte : ${note.title}`);
+  });
+}
+
+function buildGraph() {
+  const nodes = new Map();
+  const edges = [];
+  for (const note of state.notes) {
+    nodes.set(note.id, { id: note.id, title: note.title, missing: false });
+  }
+
+  for (const note of state.notes) {
+    const uniqueTargets = [...new Set(extractWikiLinks(note.body).map(normalizeTitle))];
+    for (const normalizedTarget of uniqueTargets) {
+      const rawTitle = extractWikiLinks(note.body).find((title) => normalizeTitle(title) === normalizedTarget);
+      const target = state.notes.find((candidate) => normalizeTitle(candidate.title) === normalizedTarget);
+      if (target) {
+        if (target.id !== note.id) edges.push({ from: note.id, to: target.id });
+      } else if (rawTitle) {
+        const missingId = `missing:${normalizedTarget}`;
+        nodes.set(missingId, { id: missingId, title: rawTitle, missing: true });
+        edges.push({ from: note.id, to: missingId });
+      }
+    }
+  }
+
+  return { nodes: [...nodes.values()].slice(0, MAX_GRAPH_NODES), edges };
+}
+
+function renderGraph() {
+  const { nodes, edges } = buildGraph();
+  const active = activeNote();
+  els.graphStats.textContent = `${edges.length} ${edges.length > 1 ? "liens" : "lien"} · glisse`;
+
+  if (!nodes.length) {
+    els.graph.innerHTML = "";
+    state.graphRuntimePositions = {};
+    return;
+  }
+
+  const positions = resolveGraphPositions(nodes);
+  const visibleIds = new Set(nodes.map((node) => node.id));
+  const lineMarkup = edges
+    .filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to) && positions.has(edge.from) && positions.has(edge.to))
+    .map((edge) => {
+      const from = positions.get(edge.from);
+      const to = positions.get(edge.to);
+      const classes = ["edge", active && (edge.from === active.id || edge.to === active.id) ? "active" : ""].filter(Boolean).join(" ");
+      return `<line class="${classes}" data-edge-from="${attr(edge.from)}" data-edge-to="${attr(edge.to)}" x1="${from.x.toFixed(1)}" y1="${from.y.toFixed(1)}" x2="${to.x.toFixed(1)}" y2="${to.y.toFixed(1)}"></line>`;
+    })
+    .join("");
+
+  const nodeMarkup = nodes
+    .map((node) => {
+      const pos = positions.get(node.id);
+      const isActive = node.id === state.activeId;
+      const classes = ["node", isActive ? "active" : "", node.missing ? "missing" : ""].filter(Boolean).join(" ");
+      const label = clampText(node.title, 18);
+      const radius = isActive ? 14 : node.missing ? 10 : 11;
+      const actionLabel = node.missing ? `Créer « ${node.title} »` : `Ouvrir l'article « ${node.title} »`;
+      return `
+        <g class="${classes}" role="${node.missing ? "button" : "link"}" tabindex="0" aria-label="${attr(actionLabel)}" data-node-id="${attr(node.id)}" data-note-title="${attr(node.title)}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})">
+          <title>${escapeHtml(actionLabel)}</title>
+          <circle class="node-hitbox" r="${radius + 17}"></circle>
+          <circle class="node-glow" r="${radius + 8}"></circle>
+          <circle class="node-core" r="${radius}"></circle>
+          <text y="${radius + 16}">${escapeHtml(label)}</text>
+        </g>`;
+    })
+    .join("");
+
+  const limitCaption = nodes.length >= MAX_GRAPH_NODES
+    ? `<text class="graph-caption" x="12" y="368">Affichage limité à ${MAX_GRAPH_NODES} nœuds</text>`
+    : "";
+  const hint = `<text class="graph-hint" x="528" y="368" text-anchor="end">Glisse les nœuds</text>`;
+
+  els.graph.innerHTML = `${lineMarkup}${nodeMarkup}${limitCaption}${hint}`;
+}
+function renderAll() {
+  renderSecurityPanel();
+  renderSnapshotsPanel();
+  renderRepoPanel();
+  renderVaultStats();
+  renderTagFilters();
+  renderFolderFilters();
+  renderFolderSuggestions();
+  renderStarredList();
+  renderNotesList();
+  renderActiveNote();
+  renderPreview();
+  renderBacklinks();
+  renderNoteTags();
+  renderOutgoingLinks();
+  renderGraph();
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 400);
+}
+
+function downloadFile(filename, content, mime = "text/plain;charset=utf-8") {
+  downloadBlob(filename, new Blob([content], { type: mime }));
+}
+
+async function generateAssistantToken(showToast = true) {
+  try {
+    const token = `povm_${randomBase64Url(32)}`;
+    const createdAt = nowIso();
+    state.security.tokenHash = await sha256Hex(`${state.security.vaultId}:${token}`);
+    state.security.tokenHint = assistantTokenHint(token);
+    state.security.tokenCreatedAt = state.security.tokenCreatedAt || createdAt;
+    state.security.tokenRotatedAt = createdAt;
+    state.assistantToken = token;
+    persistSecurityState();
+    renderSecurityPanel();
+    requestAnimationFrame(() => {
+      els.assistantTokenOutput.focus();
+      els.assistantTokenOutput.select();
+    });
+    if (showToast) toast("Token crypto généré. Copie-le maintenant : le secret n'est pas stocké.");
+    return token;
+  } catch (error) {
+    console.error(error);
+    toast("Token impossible : Web Crypto indisponible.");
+    return "";
+  }
+}
+
+async function copyAssistantToken() {
+  if (!state.assistantToken) {
+    toast("Génère d'abord un token assistant.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(state.assistantToken);
+    toast("Token copié.");
+  } catch {
+    els.assistantTokenOutput.select();
+    document.execCommand("copy");
+    toast("Token sélectionné.");
+  }
+}
+
+async function ensureAssistantTokenForExport() {
+  if (state.security.tokenHash) return state.assistantToken;
+  return generateAssistantToken(false);
+}
+
+function safeFilename(name) {
+  return String(name || "note")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLocaleLowerCase("fr-FR") || "note";
+}
+
+const ZIP_UTF8_FLAG = 0x0800;
+let CRC32_TABLE = null;
+
+function getCrc32Table() {
+  if (CRC32_TABLE) return CRC32_TABLE;
+  CRC32_TABLE = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    CRC32_TABLE[n] = c >>> 0;
+  }
+  return CRC32_TABLE;
+}
+
+function crc32(bytes) {
+  const table = getCrc32Table();
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc = (crc >>> 8) ^ table[(crc ^ bytes[index]) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function setUint16(buffer, offset, value) {
+  buffer[offset] = value & 0xff;
+  buffer[offset + 1] = (value >>> 8) & 0xff;
+}
+
+function setUint32(buffer, offset, value) {
+  buffer[offset] = value & 0xff;
+  buffer[offset + 1] = (value >>> 8) & 0xff;
+  buffer[offset + 2] = (value >>> 16) & 0xff;
+  buffer[offset + 3] = (value >>> 24) & 0xff;
+}
+
+function concatUint8(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function dosDateTime(value) {
+  const input = value ? new Date(value) : new Date();
+  const date = Number.isNaN(input.getTime()) ? new Date() : input;
+  const year = Math.max(1980, Math.min(2107, date.getFullYear()));
+  return {
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+  };
+}
+
+function createZipArchive(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  const entries = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const cleanPath = String(file.path || "file.txt").replace(/^\/+/, "").replaceAll("\\", "/");
+    const nameBytes = encoder.encode(cleanPath);
+    const data = file.content instanceof Uint8Array ? file.content : encoder.encode(String(file.content ?? ""));
+    const checksum = crc32(data);
+    const { date, time } = dosDateTime(file.date || nowIso());
+
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    setUint32(localHeader, 0, 0x04034b50);
+    setUint16(localHeader, 4, 20);
+    setUint16(localHeader, 6, ZIP_UTF8_FLAG);
+    setUint16(localHeader, 8, 0);
+    setUint16(localHeader, 10, time);
+    setUint16(localHeader, 12, date);
+    setUint32(localHeader, 14, checksum);
+    setUint32(localHeader, 18, data.length);
+    setUint32(localHeader, 22, data.length);
+    setUint16(localHeader, 26, nameBytes.length);
+    setUint16(localHeader, 28, 0);
+    localHeader.set(nameBytes, 30);
+
+    localParts.push(localHeader, data);
+    entries.push({ nameBytes, data, checksum, date, time, offset });
+    offset += localHeader.length + data.length;
+  }
+
+  const centralOffset = offset;
+  for (const entry of entries) {
+    const centralHeader = new Uint8Array(46 + entry.nameBytes.length);
+    setUint32(centralHeader, 0, 0x02014b50);
+    setUint16(centralHeader, 4, 20);
+    setUint16(centralHeader, 6, 20);
+    setUint16(centralHeader, 8, ZIP_UTF8_FLAG);
+    setUint16(centralHeader, 10, 0);
+    setUint16(centralHeader, 12, entry.time);
+    setUint16(centralHeader, 14, entry.date);
+    setUint32(centralHeader, 16, entry.checksum);
+    setUint32(centralHeader, 20, entry.data.length);
+    setUint32(centralHeader, 24, entry.data.length);
+    setUint16(centralHeader, 28, entry.nameBytes.length);
+    setUint16(centralHeader, 30, 0);
+    setUint16(centralHeader, 32, 0);
+    setUint16(centralHeader, 34, 0);
+    setUint16(centralHeader, 36, 0);
+    setUint32(centralHeader, 38, 0);
+    setUint32(centralHeader, 42, entry.offset);
+    centralHeader.set(entry.nameBytes, 46);
+    centralParts.push(centralHeader);
+    offset += centralHeader.length;
+  }
+
+  const centralSize = offset - centralOffset;
+  const end = new Uint8Array(22);
+  setUint32(end, 0, 0x06054b50);
+  setUint16(end, 4, 0);
+  setUint16(end, 6, 0);
+  setUint16(end, 8, entries.length);
+  setUint16(end, 10, entries.length);
+  setUint32(end, 12, centralSize);
+  setUint32(end, 16, centralOffset);
+  setUint16(end, 20, 0);
+
+  return concatUint8([...localParts, ...centralParts, end]);
+}
+
+function uniqueWikiTargets(markdown) {
+  const targets = new Map();
+  for (const title of extractWikiLinks(markdown)) {
+    const normalized = normalizeTitle(title);
+    if (!targets.has(normalized)) targets.set(normalized, { normalized, title });
+  }
+  return [...targets.values()];
+}
+
+function escapeMarkdownLinkLabel(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("]", "\\]");
+}
+
+function escapeMarkdownText(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]");
+}
+
+function buildCodexContext(exportedAt = nowIso()) {
+  const usedSlugs = new Set();
+  const idToFile = new Map();
+  const titleToFile = new Map();
+  const files = [...state.notes]
+    .sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }))
+    .map((note) => {
+      const base = safeFilename(note.title || "note");
+      let slug = base || "note";
+      let suffix = 2;
+      while (usedSlugs.has(slug)) {
+        slug = `${base}-${suffix}`;
+        suffix += 1;
+      }
+      usedSlugs.add(slug);
+      const file = {
+        id: note.id,
+        note,
+        title: note.title,
+        slug,
+        path: `knowledge/notes/${slug}.md`,
+        relativePath: `notes/${slug}.md`,
+      };
+      idToFile.set(note.id, file);
+      titleToFile.set(normalizeTitle(note.title), file);
+      return file;
+    });
+
+  const edges = [];
+  for (const file of files) {
+    for (const target of uniqueWikiTargets(file.note.body)) {
+      const targetFile = titleToFile.get(target.normalized);
+      edges.push({
+        fromId: file.id,
+        fromSlug: file.slug,
+        fromTitle: file.title,
+        toId: targetFile?.id || null,
+        toSlug: targetFile?.slug || null,
+        toTitle: targetFile?.title || target.title,
+        missing: !targetFile,
+      });
+    }
+  }
+
+  return {
+    exportedAt,
+    files,
+    idToFile,
+    titleToFile,
+    edges,
+  };
+}
+
+function linksForFile(file, context) {
+  return context.edges.filter((edge) => edge.fromId === file.id);
+}
+
+function backlinksForFile(file, context) {
+  return context.edges.filter((edge) => edge.toId === file.id);
+}
+
+function convertWikiLinksForCodex(markdown, context) {
+  return String(markdown || "").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (full, rawTitle, rawLabel) => {
+    const title = String(rawTitle || "").trim();
+    const label = String(rawLabel || title).trim();
+    const target = context.titleToFile.get(normalizeTitle(title));
+    if (!target) return full;
+    return `[${escapeMarkdownLinkLabel(label)}](./${target.slug}.md)`;
+  });
+}
+
+function yamlString(value) {
+  return JSON.stringify(String(value || ""));
+}
+
+function makeCodexNoteMarkdown(file, context) {
+  const note = file.note;
+  const links = linksForFile(file, context).map((edge) => edge.toTitle);
+  const backlinks = backlinksForFile(file, context).map((edge) => edge.fromTitle);
+  const tags = tagsForNote(note);
+  const body = convertWikiLinksForCodex((note.body || `# ${note.title}\n\n`).trimEnd(), context);
+
+  return `---\n` +
+    `title: ${yamlString(note.title)}\n` +
+    `slug: ${yamlString(file.slug)}\n` +
+    `folder: ${yamlString(note.folder)}\n` +
+    `createdAt: ${yamlString(note.createdAt)}\n` +
+    `updatedAt: ${yamlString(note.updatedAt)}\n` +
+    `starred: ${isStarred(note.id) ? "true" : "false"}\n` +
+    `tags: ${JSON.stringify(tags)}\n` +
+    `links: ${JSON.stringify(links)}\n` +
+    `backlinks: ${JSON.stringify(backlinks)}\n` +
+    `---\n\n` +
+    `${body}\n`;
+}
+
+function makeCodexIndexMarkdown(context) {
+  const tagMap = new Map();
+  const folderMap = new Map();
+  for (const file of context.files) {
+    const folder = normalizeFolder(file.note.folder);
+    if (!folderMap.has(folder)) folderMap.set(folder, []);
+    folderMap.get(folder).push(file);
+    for (const tag of tagsForNote(file.note)) {
+      if (!tagMap.has(tag)) tagMap.set(tag, []);
+      tagMap.get(tag).push(file);
+    }
+  }
+
+  const noteLines = context.files.map((file) => {
+    const tags = tagsForNote(file.note).map((tag) => `#${tag}`).join(", ") || "aucun tag";
+    const links = linksForFile(file, context).length;
+    const backlinks = backlinksForFile(file, context).length;
+    return `- [${escapeMarkdownLinkLabel(file.title)}](${file.relativePath}) — ${escapeMarkdownText(file.note.folder)}; ${tags}; ${links} lien(s), ${backlinks} backlink(s)`;
+  });
+
+  const tagLines = [...tagMap.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "fr"))
+    .map(([tag, files]) => `- #${tag} (${files.length}) — ${files.map((file) => `[${escapeMarkdownLinkLabel(file.title)}](${file.relativePath})`).join(", ")}`);
+
+  const folderLines = [...folderMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], "fr"))
+    .map(([folder, files]) => `- ${escapeMarkdownText(folder)} (${files.length}) — ${files.map((file) => `[${escapeMarkdownLinkLabel(file.title)}](${file.relativePath})`).join(", ")}`);
+
+  const starredLines = context.files
+    .filter((file) => isStarred(file.id))
+    .map((file) => `- [${escapeMarkdownLinkLabel(file.title)}](${file.relativePath})`);
+
+  const edgeLines = context.edges.length
+    ? context.edges.map((edge) => {
+        const target = edge.missing ? `${escapeMarkdownText(edge.toTitle)} (note manquante)` : escapeMarkdownText(edge.toTitle);
+        return `- ${escapeMarkdownText(edge.fromTitle)} -> ${target}`;
+      })
+    : ["- Aucun lien wiki détecté."];
+
+  return `# Knowledge index\n\n` +
+    `Exporté depuis ${APP_NAME} le ${context.exportedAt}.\n\n` +
+    `Cette base est destinée à être lue par Codex ou par un autre agent de code. Commence par ce fichier, puis ouvre les notes pertinentes dans \`knowledge/notes/\`.\n\n` +
+    `## Notes\n\n${noteLines.join("\n") || "- Aucune note."}\n\n` +
+    `## Dossiers\n\n${folderLines.join("\n") || "- Aucun dossier."}\n\n` +
+    `## Favoris\n\n${starredLines.join("\n") || "- Aucun favori."}\n\n` +
+    `## Tags\n\n${tagLines.join("\n") || "- Aucun tag."}\n\n` +
+    `## Graphe des liens\n\n${edgeLines.join("\n")}\n\n` +
+    `## Fichiers générés\n\n` +
+    `- \`AGENTS.md\` : instructions à placer à la racine du repo.\n` +
+    `- \`knowledge/INDEX.md\` : index lisible par Codex.\n` +
+    `- \`knowledge/notes/*.md\` : notes Markdown exportées.\n` +
+    `- \`knowledge/manifest.json\` : métadonnées de notes.\n` +
+    `- \`knowledge/graph.json\` : nœuds et liens du graphe.\n`;
+}
+
+function makeCodexAgentsMarkdown(context) {
+  return `# AGENTS.md\n\n` +
+    `## Base de connaissance\n\n` +
+    `Cette base de connaissance a été exportée depuis ${APP_NAME}. Avant de modifier le code, lis d'abord :\n\n` +
+    `- \`knowledge/INDEX.md\`\n` +
+    `- Les notes pertinentes dans \`knowledge/notes/\`\n` +
+    `- Les métadonnées dans \`knowledge/manifest.json\` si tu dois comprendre les tags, backlinks ou liens manquants\n\n` +
+    `Les notes d'origine utilisent parfois des liens wiki du type \`[[note]]\`. Dans cet export, les liens vers des notes existantes sont convertis en liens Markdown classiques. Les liens wiki restants pointent vers des notes manquantes ou externes.\n\n` +
+    `## Règles de travail\n\n` +
+    `- Ne change pas une décision documentée sans expliquer pourquoi.\n` +
+    `- Si le code réel contredit la base de connaissance, signale la contradiction.\n` +
+    `- Après une modification importante, propose une mise à jour des notes concernées.\n` +
+    `- Quand tu ajoutes une convention durable, propose de l'ajouter dans une note dédiée, par exemple \`knowledge/notes/conventions.md\`.\n` +
+    `- Garde les notes en Markdown simple, lisible et versionnable.\n\n` +
+    `## Organisation\n\n` +
+    `- Nombre de notes exportées : ${context.files.length}\n` +
+    `- Nombre de liens détectés : ${context.edges.length}\n` +
+    `- Dossier principal : \`knowledge/notes/\`\n`;
+}
+
+function makeCodexReadmeMarkdown() {
+  return `# Export Codex KB\n\n` +
+    `Ce zip a été généré par ${APP_NAME}.\n\n` +
+    `## Utilisation recommandée\n\n` +
+    `1. Copie \`AGENTS.md\` à la racine de ton repo.\n` +
+    `2. Copie le dossier \`knowledge/\` à la racine du même repo.\n` +
+    `3. Lance Codex depuis la racine du repo.\n` +
+    `4. Demande à Codex de lire \`AGENTS.md\` et \`knowledge/INDEX.md\` avant de coder.\n\n` +
+    `## Contenu\n\n` +
+    `- \`AGENTS.md\` : consignes projet pour l'agent.\n` +
+    `- \`knowledge/INDEX.md\` : sommaire de la base.\n` +
+    `- \`knowledge/notes/*.md\` : notes Markdown.\n` +
+    `- \`knowledge/manifest.json\` : données structurées.\n` +
+    `- \`knowledge/graph.json\` : graphe des liens.\n`;
+}
+
+function makeCodexManifest(context) {
+  return {
+    app: APP_NAME,
+    format: "codex-kb",
+    version: 1,
+    exportedAt: context.exportedAt,
+    noteCount: context.files.length,
+    linkCount: context.edges.length,
+    repo: repoSummaryPayload(),
+    notes: context.files.map((file) => ({
+      id: file.id,
+      title: file.title,
+      slug: file.slug,
+      path: file.path,
+      folder: file.note.folder,
+      starred: isStarred(file.id),
+      createdAt: file.note.createdAt,
+      updatedAt: file.note.updatedAt,
+      tags: tagsForNote(file.note),
+      links: linksForFile(file, context).map((edge) => ({ title: edge.toTitle, path: edge.toSlug ? `knowledge/notes/${edge.toSlug}.md` : null, missing: edge.missing })),
+      backlinks: backlinksForFile(file, context).map((edge) => ({ title: edge.fromTitle, path: `knowledge/notes/${edge.fromSlug}.md` })),
+    })),
+    edges: context.edges.map((edge) => ({
+      from: edge.fromTitle,
+      fromPath: `knowledge/notes/${edge.fromSlug}.md`,
+      to: edge.toTitle,
+      toPath: edge.toSlug ? `knowledge/notes/${edge.toSlug}.md` : null,
+      missing: edge.missing,
+    })),
+  };
+}
+
+function makeCodexGraph(context) {
+  return {
+    nodes: context.files.map((file) => ({
+      id: file.slug,
+      title: file.title,
+      path: file.path,
+      tags: tagsForNote(file.note),
+    })),
+    edges: context.edges.map((edge) => ({
+      source: edge.fromSlug,
+      target: edge.toSlug,
+      targetTitle: edge.toTitle,
+      missing: edge.missing,
+    })),
+  };
+}
+
+function buildCodexFiles() {
+  const context = buildCodexContext();
+  const files = [
+    { path: "README-CODEX-EXPORT.md", content: makeCodexReadmeMarkdown() },
+    { path: "AGENTS.md", content: makeCodexAgentsMarkdown(context) },
+    { path: "knowledge/INDEX.md", content: makeCodexIndexMarkdown(context) },
+    { path: "knowledge/manifest.json", content: JSON.stringify(makeCodexManifest(context), null, 2) },
+    { path: "knowledge/graph.json", content: JSON.stringify(makeCodexGraph(context), null, 2) },
+    ...context.files.map((file) => ({ path: file.path, content: makeCodexNoteMarkdown(file, context), date: file.note.updatedAt })),
+  ];
+  return { context, files };
+}
+
+function makeMcpAccessManifest(exportedAt = nowIso(), snapshot = latestSnapshot()) {
+  return {
+    format: "povmind-mcp-access",
+    version: 1,
+    exportedAt,
+    vaultId: state.security.vaultId,
+    tokenHash: state.security.tokenHash,
+    tokenHint: state.security.tokenHint,
+    algorithm: state.security.algorithm,
+    scopes: state.security.scopes,
+    transport: "stdio",
+    tokenEnvironmentVariable: "POVMIND_VAULT_TOKEN",
+    latestSnapshot: snapshot ? {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt,
+      contentHash: snapshot.hash,
+    } : null,
+  };
+}
+
+function makeMcpReadmeMarkdown(context) {
+  const repo = repoSummaryPayload();
+  return `# PovMind MCP bundle\n\n` +
+    `Ce bundle expose le vault PovMind via un serveur MCP local protégé par token.\n\n` +
+    `## Démarrage rapide\n\n` +
+    `1. Copie le token affiché dans PovMind après “Nouveau token”.\n` +
+    `2. Lance le serveur avec la variable d'environnement :\n\n` +
+    `\`\`\`bash\nPOVMIND_VAULT_TOKEN="povm_..." node mcp/povmind-server.mjs\n\`\`\`\n\n` +
+    `3. Dans ton client MCP, configure la commande \`node\`, l'argument \`mcp/povmind-server.mjs\` et l'env \`POVMIND_VAULT_TOKEN\`.\n\n` +
+    `## Sécurité\n\n` +
+    `Le secret complet n'est pas dans ce zip. Le bundle contient seulement :\n\n` +
+    `- \`vaultId\` : ${state.security.vaultId}\n` +
+    `- \`tokenHint\` : ${state.security.tokenHint || "non généré"}\n` +
+    `- \`tokenHash\` : empreinte SHA-256 du couple \`vaultId:token\`\n\n` +
+    `Un assistant sans token ne peut pas lister ni lire les notes via ce serveur MCP.\n\n` +
+    `## Outils MCP\n\n` +
+    `- \`povmind.search\` : recherche plein texte.\n` +
+    `- \`povmind.read_note\` : lecture d'une note par titre, slug ou chemin.\n` +
+    `- \`povmind.list_notes\` : liste filtrable des notes.\n` +
+    `- \`povmind.vault_manifest\` : métadonnées structurées.\n\n` +
+    `Outils code si un repo est lié au vault :\n\n` +
+    `- \`povmind.repo_manifest\` : identité Git, branche, commit, hash d'arbre et politique d'indexation.\n` +
+    `- \`povmind.repo_list_files\` : liste des fichiers exportés, filtrable par langage.\n` +
+    `- \`povmind.repo_search\` : recherche dans les fichiers exportés.\n` +
+    `- \`povmind.repo_read_file\` : lecture d'un fichier exporté par chemin.\n\n` +
+    `## Version du contexte\n\n` +
+    `Le champ \`latestSnapshot\` dans \`mcp/access.json\` pointe vers le dernier snapshot créé, avec son \`contentHash\`. Utilise ce hash pour citer le contexte exact utilisé par l'assistant.\n\n` +
+    `## Code repo\n\n` +
+    (repo.linked
+      ? `Repo lié : ${repo.name || repo.root || "repo"} · ${repo.branch || "branche inconnue"} @ ${repo.commit ? repo.commit.slice(0, 8) : "commit inconnu"} · tree ${repo.treeHash ? repo.treeHash.slice(0, 12) : "inconnu"}.\n\n`
+      : `Aucun repo de code n'était lié au moment de l'export.\n\n`) +
+    `## Ressources MCP\n\n` +
+    `- \`povmind://vault/manifest\`\n` +
+    `- \`povmind://notes/{slug}\`\n\n` +
+    `- \`povmind://repo/manifest\`\n` +
+    `- \`povmind://repo/files/{path}\`\n\n` +
+    `Notes exportées : ${context.files.length}. Liens détectés : ${context.edges.length}.\n`;
+}
+
+function makeMcpClientConfigExample() {
+  return {
+    mcpServers: {
+      povmind: {
+        command: "node",
+        args: ["mcp/povmind-server.mjs"],
+        env: {
+          POVMIND_VAULT_TOKEN: "paste-token-here",
+        },
+      },
+    },
+  };
+}
+
+function makeMcpServerSource() {
+  return `#!/usr/bin/env node
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const root = path.resolve(__dirname, "..");
+const manifest = readJson(path.join(root, "knowledge", "manifest.json"));
+const access = readJson(path.join(root, "mcp", "access.json"));
+const notes = new Map((manifest.notes || []).map((note) => [note.slug, note]));
+const repoManifestPath = path.join(root, "repo", "manifest.json");
+const repoManifest = fs.existsSync(repoManifestPath) ? readJson(repoManifestPath) : { linked: false, files: [] };
+const repoFiles = new Map((repoManifest.files || []).map((file) => [file.path, file]));
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function readText(relativePath) {
+  const resolved = path.resolve(root, relativePath);
+  if (!resolved.startsWith(root)) throw new Error("Path outside vault");
+  return fs.readFileSync(resolved, "utf8");
+}
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(access.vaultId + ":" + token).digest("hex");
+}
+
+function safeCompare(left, right) {
+  if (!left || !right || left.length !== right.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+}
+
+function authorized() {
+  const token = process.env.POVMIND_VAULT_TOKEN || "";
+  return safeCompare(hashToken(token), access.tokenHash);
+}
+
+function requireAccess() {
+  if (!authorized()) {
+    const hint = access.tokenHint ? " Token attendu proche de " + access.tokenHint + "." : "";
+    throw Object.assign(new Error("PovMind vault locked. Set POVMIND_VAULT_TOKEN." + hint), { code: -32001 });
+  }
+}
+
+function textResult(text) {
+  return { content: [{ type: "text", text: String(text) }] };
+}
+
+function jsonText(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function noteText(note) {
+  return readText(note.path);
+}
+
+function repoFileText(file) {
+  if (!file) return "";
+  if (file.exportPath) return readText(file.exportPath);
+  return file.content || file.preview || "";
+}
+
+function findNote(input = {}) {
+  const needle = String(input.title || input.slug || input.path || "").trim().toLocaleLowerCase("fr-FR");
+  if (!needle) return null;
+  return (manifest.notes || []).find((note) => {
+    return note.slug.toLocaleLowerCase("fr-FR") === needle ||
+      note.title.toLocaleLowerCase("fr-FR") === needle ||
+      note.path.toLocaleLowerCase("fr-FR") === needle;
+  }) || null;
+}
+
+function findRepoFile(input = {}) {
+  const needle = String(input.path || input.file || "").trim();
+  if (!needle) return null;
+  return repoFiles.get(needle) || (repoManifest.files || []).find((file) => file.path.toLocaleLowerCase("fr-FR") === needle.toLocaleLowerCase("fr-FR")) || null;
+}
+
+function searchNotes(args = {}) {
+  const query = String(args.query || "").trim().toLocaleLowerCase("fr-FR");
+  const limit = Math.max(1, Math.min(25, Number(args.limit || 8)));
+  if (!query) return [];
+  return (manifest.notes || [])
+    .map((note) => {
+      const markdown = noteText(note);
+      const haystack = (note.title + "\\n" + note.folder + "\\n" + markdown).toLocaleLowerCase("fr-FR");
+      const index = haystack.indexOf(query);
+      if (index < 0) return null;
+      const plain = markdown.replace(new RegExp("[#*_\\\\x60\\\\[\\\\]]", "g"), " ").replace(/\\s+/g, " ").trim();
+      return {
+        title: note.title,
+        slug: note.slug,
+        path: note.path,
+        folder: note.folder,
+        tags: note.tags,
+        excerpt: plain.slice(Math.max(0, index - 80), index + 220),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function listNotes(args = {}) {
+  const tag = String(args.tag || "").replace(/^#/, "").toLocaleLowerCase("fr-FR");
+  const folder = String(args.folder || "").toLocaleLowerCase("fr-FR");
+  return (manifest.notes || [])
+    .filter((note) => !tag || (note.tags || []).includes(tag))
+    .filter((note) => !folder || note.folder.toLocaleLowerCase("fr-FR") === folder)
+    .map((note) => ({
+      title: note.title,
+      slug: note.slug,
+      folder: note.folder,
+      path: note.path,
+      tags: note.tags,
+      links: note.links,
+      backlinks: note.backlinks,
+      updatedAt: note.updatedAt,
+    }));
+}
+
+function searchRepoFiles(args = {}) {
+  const query = String(args.query || "").trim().toLocaleLowerCase("fr-FR");
+  const limit = Math.max(1, Math.min(25, Number(args.limit || 8)));
+  if (!query) return [];
+  return (repoManifest.files || [])
+    .map((file) => {
+      const content = repoFileText(file);
+      const haystack = (file.path + "\\n" + (file.language || "") + "\\n" + content).toLocaleLowerCase("fr-FR");
+      const index = haystack.indexOf(query);
+      if (index < 0) return null;
+      const plain = content.replace(/\\s+/g, " ").trim();
+      return {
+        path: file.path,
+        language: file.language,
+        bytes: file.bytes,
+        hash: file.hash,
+        excerpt: plain.slice(Math.max(0, index - 80), index + 260),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function listRepoFiles(args = {}) {
+  const language = String(args.language || "").toLocaleLowerCase("fr-FR");
+  return (repoManifest.files || [])
+    .filter((file) => !language || String(file.language || "").toLocaleLowerCase("fr-FR") === language)
+    .map((file) => ({
+      path: file.path,
+      language: file.language,
+      bytes: file.bytes,
+      hash: file.hash,
+      hasContent: Boolean(file.content || file.exportPath),
+    }));
+}
+
+function resourceForNote(note) {
+  return {
+    uri: "povmind://notes/" + note.slug,
+    name: note.title,
+    description: note.folder + " · " + (note.tags || []).map((tag) => "#" + tag).join(" "),
+    mimeType: "text/markdown",
+  };
+}
+
+function resourceForRepoFile(file) {
+  return {
+    uri: "povmind://repo/files/" + encodeURIComponent(file.path),
+    name: file.path,
+    description: (file.language || "text") + " · " + (file.hash || "").slice(0, 12),
+    mimeType: "text/plain",
+  };
+}
+
+const tools = [
+  {
+    name: "povmind.search",
+    description: "Search the PovMind vault notes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query." },
+        limit: { type: "number", description: "Maximum results, default 8." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "povmind.read_note",
+    description: "Read one PovMind note by title, slug or path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        slug: { type: "string" },
+        path: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "povmind.list_notes",
+    description: "List PovMind notes, optionally filtered by tag or folder.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tag: { type: "string" },
+        folder: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "povmind.vault_manifest",
+    description: "Read structured PovMind vault metadata.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "povmind.repo_manifest",
+    description: "Read structured metadata for the code repo linked to this vault.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "povmind.repo_list_files",
+    description: "List files exported from the code repo linked to this vault.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        language: { type: "string", description: "Optional language filter, for example javascript or markdown." },
+      },
+    },
+  },
+  {
+    name: "povmind.repo_search",
+    description: "Search exported files from the code repo linked to this vault.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query." },
+        limit: { type: "number", description: "Maximum results, default 8." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "povmind.repo_read_file",
+    description: "Read one exported repo file by path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Repo-relative file path." },
+      },
+      required: ["path"],
+    },
+  },
+];
+
+function handleToolCall(name, args) {
+  requireAccess();
+  if (name === "povmind.search") return textResult(jsonText(searchNotes(args)));
+  if (name === "povmind.list_notes") return textResult(jsonText(listNotes(args)));
+  if (name === "povmind.repo_manifest") return textResult(jsonText(repoManifest));
+  if (name === "povmind.repo_list_files") return textResult(jsonText(listRepoFiles(args)));
+  if (name === "povmind.repo_search") return textResult(jsonText(searchRepoFiles(args)));
+  if (name === "povmind.repo_read_file") {
+    const file = findRepoFile(args);
+    if (!file) return textResult("Repo file not found.");
+    return textResult(repoFileText(file));
+  }
+  if (name === "povmind.vault_manifest") return textResult(jsonText({
+    app: manifest.app,
+    exportedAt: manifest.exportedAt,
+    noteCount: manifest.noteCount,
+    linkCount: manifest.linkCount,
+    notes: manifest.notes,
+    edges: manifest.edges,
+    access: {
+      vaultId: access.vaultId,
+      tokenHint: access.tokenHint,
+      scopes: access.scopes,
+    },
+    repo: repoManifest,
+  }));
+  if (name === "povmind.read_note") {
+    const note = findNote(args);
+    if (!note) return textResult("Note not found.");
+    return textResult(noteText(note));
+  }
+  throw Object.assign(new Error("Unknown tool: " + name), { code: -32602 });
+}
+
+function handleResourceRead(uri) {
+  requireAccess();
+  if (uri === "povmind://vault/manifest") {
+    return { contents: [{ uri, mimeType: "application/json", text: jsonText(manifest) }] };
+  }
+  if (uri === "povmind://repo/manifest") {
+    return { contents: [{ uri, mimeType: "application/json", text: jsonText(repoManifest) }] };
+  }
+  const repoPrefix = "povmind://repo/files/";
+  if (uri.startsWith(repoPrefix)) {
+    const filePath = decodeURIComponent(uri.slice(repoPrefix.length));
+    const file = findRepoFile({ path: filePath });
+    if (!file) throw Object.assign(new Error("Resource not found: " + uri), { code: -32004 });
+    return { contents: [{ uri, mimeType: "text/plain", text: repoFileText(file) }] };
+  }
+  const prefix = "povmind://notes/";
+  if (uri.startsWith(prefix)) {
+    const slug = uri.slice(prefix.length);
+    const note = notes.get(slug);
+    if (!note) throw Object.assign(new Error("Resource not found: " + uri), { code: -32004 });
+    return { contents: [{ uri, mimeType: "text/markdown", text: noteText(note) }] };
+  }
+  throw Object.assign(new Error("Resource not found: " + uri), { code: -32004 });
+}
+
+function handleRequest(message) {
+  const { id, method, params = {} } = message;
+  if (method === "initialize") {
+    return {
+      protocolVersion: params.protocolVersion || "2025-06-18",
+      capabilities: { resources: {}, tools: {} },
+      serverInfo: { name: "povmind-vault", version: "${APP_VERSION}" },
+    };
+  }
+  if (method === "ping") return {};
+  if (method === "tools/list") return { tools };
+  if (method === "tools/call") return handleToolCall(params.name, params.arguments || {});
+  if (method === "resources/list") {
+    requireAccess();
+    return {
+      resources: [
+        { uri: "povmind://vault/manifest", name: "PovMind manifest", mimeType: "application/json" },
+        { uri: "povmind://repo/manifest", name: "PovMind repo manifest", mimeType: "application/json" },
+        ...(manifest.notes || []).map(resourceForNote),
+        ...(repoManifest.files || []).filter((file) => file.content || file.exportPath).map(resourceForRepoFile),
+      ],
+    };
+  }
+  if (method === "resources/read") return handleResourceRead(params.uri);
+  if (method === "prompts/list") return { prompts: [] };
+  if (method && method.startsWith("notifications/")) return undefined;
+  throw Object.assign(new Error("Method not found: " + method), { code: -32601 });
+}
+
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+
+function respond(message) {
+  if (message.id === undefined || message.id === null) {
+    try {
+      handleRequest(message);
+    } catch (error) {
+      process.stderr.write("[povmind-mcp] " + error.message + "\\n");
+    }
+    return;
+  }
+
+  try {
+    const result = handleRequest(message);
+    if (result !== undefined) send({ jsonrpc: "2.0", id: message.id, result });
+  } catch (error) {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      error: {
+        code: Number(error.code || -32000),
+        message: error.message || "PovMind MCP error",
+      },
+    });
+  }
+}
+
+let buffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let index;
+  while ((index = buffer.indexOf("\\n")) >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    if (!line) continue;
+    try {
+      const message = JSON.parse(line);
+      if (Array.isArray(message)) message.forEach(respond);
+      else respond(message);
+    } catch (error) {
+      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+    }
+  }
+});
+`;
+}
+
+function safeRepoExportPath(file) {
+  const hash = String(file.hash || "").slice(0, 10) || safeFilename(file.path).slice(0, 10);
+  const base = safeFilename(file.path).slice(0, 90) || "file";
+  return `repo/files/${base}-${hash}.txt`;
+}
+
+function buildRepoExportFiles() {
+  const repo = repoExportPayload(true);
+  const files = [];
+  const manifest = {
+    ...repo,
+    files: repo.files.map((file) => {
+      const copy = { ...file };
+      if (copy.content) {
+        copy.exportPath = safeRepoExportPath(copy);
+        files.push({ path: copy.exportPath, content: copy.content });
+        delete copy.content;
+      }
+      return copy;
+    }),
+  };
+
+  files.unshift({ path: "repo/manifest.json", content: JSON.stringify(manifest, null, 2) });
+  return files;
+}
+
+function buildMcpFiles() {
+  const { context, files: codexFiles } = buildCodexFiles();
+  const access = makeMcpAccessManifest();
+  const repoFiles = buildRepoExportFiles();
+  const files = [
+    { path: "README-MCP.md", content: makeMcpReadmeMarkdown(context) },
+    { path: "mcp/package.json", content: JSON.stringify({ name: "povmind-mcp-vault", version: APP_VERSION, private: true, type: "module", bin: { "povmind-mcp": "./povmind-server.mjs" } }, null, 2) },
+    { path: "mcp/povmind-server.mjs", content: makeMcpServerSource() },
+    { path: "mcp/access.json", content: JSON.stringify(access, null, 2) },
+    { path: "mcp/client-config.example.json", content: JSON.stringify(makeMcpClientConfigExample(), null, 2) },
+    ...codexFiles.filter((file) => file.path.startsWith("knowledge/") || file.path === "AGENTS.md"),
+    ...repoFiles,
+  ];
+  return { context, files };
+}
+
+function buildSnapshotContent(createdAt) {
+  const context = buildCodexContext(createdAt);
+  const active = activeNote();
+  const stats = graphStats();
+  return {
+    app: APP_NAME,
+    storageVersion: 1,
+    vaultId: state.security.vaultId,
+    activeId: state.activeId,
+    activeTitle: active?.title || null,
+    view: state.view,
+    notes: clonePlain(state.notes),
+    starredIds: [...state.starredIds],
+    graphPositions: clonePlain(state.graphPositions),
+    layout: clonePlain(state.layout),
+    security: securityExportPayload(),
+    knowledge: {
+      manifest: makeCodexManifest(context),
+      graph: makeCodexGraph(context),
+    },
+    mcp: {
+      access: makeMcpAccessManifest(createdAt, null),
+      tools: ["povmind.search", "povmind.read_note", "povmind.list_notes", "povmind.vault_manifest", "povmind.repo_manifest", "povmind.repo_list_files", "povmind.repo_search", "povmind.repo_read_file"],
+      resources: ["povmind://vault/manifest", "povmind://notes/{slug}", "povmind://repo/manifest", "povmind://repo/files/{path}"],
+    },
+    repo: repoExportPayload(false),
+    summary: {
+      noteCount: stats.notes,
+      linkCount: stats.links,
+      folderCount: stats.folders,
+      starredCount: state.starredIds.size,
+      tokenSealed: Boolean(state.security.tokenHash),
+      repoLinked: repoIsLinked(),
+      repoCommit: state.repo.commit || "",
+      repoTreeHash: state.repo.treeHash || "",
+    },
+  };
+}
+
+async function createVaultSnapshot(options = {}) {
+  persistNow(false);
+  const createdAt = nowIso();
+  const content = buildSnapshotContent(createdAt);
+  const hash = await sha256Hex(stableJson(content));
+  const id = `vault@${createdAt}`;
+  const snapshot = {
+    version: 1,
+    id,
+    createdAt,
+    hash,
+    hashAlgorithm: "sha256(canonical snapshot.content)",
+    summary: {
+      ...content.summary,
+      activeTitle: content.activeTitle,
+    },
+    payload: {
+      format: "povmind-vault-snapshot",
+      version: 1,
+      snapshotId: id,
+      createdAt,
+      contentHash: hash,
+      hashAlgorithm: "sha256(canonical snapshot.content)",
+      content,
+    },
+  };
+
+  state.snapshots = [snapshot, ...state.snapshots.filter((item) => item.id !== id)].slice(0, MAX_SNAPSHOTS);
+  persistSnapshots();
+  renderSnapshotsPanel();
+  if (!options.silent) toast(`Snapshot créé : ${hash.slice(0, 12)}…`);
+  return snapshot;
+}
+
+async function exportSnapshot(snapshotId = null) {
+  let snapshot = snapshotId ? state.snapshots.find((item) => item.id === snapshotId) : latestSnapshot();
+  if (!snapshot) snapshot = await createVaultSnapshot({ silent: true });
+  if (!snapshot) return;
+  const filename = `povmind-${safeFilename(snapshot.id)}-${snapshot.hash.slice(0, 12)}.json`;
+  downloadFile(filename, JSON.stringify(snapshot.payload, null, 2), "application/json;charset=utf-8");
+  toast(`Snapshot exporté : ${snapshot.hash.slice(0, 12)}…`);
+}
+
+function exportCodexKnowledgeBase() {
+  persistNow(false);
+  const { context, files } = buildCodexFiles();
+  const zipBytes = createZipArchive(files);
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(`povmind-codex-kb-${date}.zip`, new Blob([zipBytes], { type: "application/zip" }));
+  toast(`Base Codex exportée : ${context.files.length} note(s).`);
+}
+
+async function exportMcpBundle() {
+  persistNow(false);
+  await ensureAssistantTokenForExport();
+  if (!state.security.tokenHash) return;
+  const { context, files } = buildMcpFiles();
+  const zipBytes = createZipArchive(files);
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(`povmind-mcp-vault-${date}.zip`, new Blob([zipBytes], { type: "application/zip" }));
+  renderSecurityPanel();
+  toast(`Bundle MCP exporté : ${context.files.length} note(s), token requis.`);
+}
+
+function exportVault() {
+  persistNow(false);
+  const payload = {
+    version: 1,
+    exportedAt: nowIso(),
+    activeId: state.activeId,
+    starredIds: [...state.starredIds],
+    security: securityExportPayload(),
+    repo: repoExportPayload(true),
+    snapshots: state.snapshots,
+    notes: state.notes,
+  };
+  downloadFile("povmind-vault.json", JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+  toast("Carnet exporté en JSON.");
+}
+
+function exportMarkdown() {
+  const note = activeNote();
+  if (!note) return;
+  downloadFile(`${safeFilename(note.title)}.md`, note.body || "", "text/markdown;charset=utf-8");
+  toast("Note exportée en Markdown.");
+}
+
+async function importRepoManifest(file) {
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const manifest = cleanRepoState({
+      ...parsed,
+      linked: true,
+      importedAt: nowIso(),
+    });
+    if (!manifest.name && !manifest.root) throw new Error("Nom de repo manquant");
+    state.repo = manifest;
+    persistRepoState();
+    renderRepoPanel();
+    toast(`Repo lié : ${manifest.name || manifest.root}.`);
+  } catch (error) {
+    console.error(error);
+    toast("Manifest repo invalide.");
+  } finally {
+    els.repoManifestInput.value = "";
+  }
+}
+
+function exportRepoManifest() {
+  if (!repoIsLinked()) {
+    toast("Aucun repo lié.");
+    return;
+  }
+  const repo = repoExportPayload(true);
+  const name = safeFilename(repo.name || repo.root || "repo");
+  downloadFile(`povmind-repo-${name}-${(repo.treeHash || "nohash").slice(0, 12)}.json`, JSON.stringify(repo, null, 2), "application/json;charset=utf-8");
+  toast("Manifest repo exporté.");
+}
+
+function ensureCodeRepoNote() {
+  if (!repoIsLinked()) {
+    toast("Importe d'abord un manifest repo.");
+    return null;
+  }
+
+  const repo = cleanRepoState(state.repo);
+  const title = `Code Repo - ${repo.name || repo.root || "Repo"}`;
+  const files = repo.files
+    .slice(0, 24)
+    .map((file) => `- \`${file.path}\` — ${file.language || "texte"}, ${file.bytes || 0} o, ${shortHash(file.hash)}`)
+    .join("\n") || "- Aucun fichier indexé.";
+
+  const body = `# ${title}\n\nCe repo est l'ancre exécutable du vault.\n\n## Identité\n\n- Nom : ${repo.name || repo.root || "Repo"}\n- Remote : ${repo.remote || "non renseigné"}\n- Branche : ${repo.branch || "inconnue"}\n- Commit : ${repo.commit || "inconnu"}\n- Dirty : ${repo.dirty === true ? "oui" : repo.dirty === false ? "non" : "inconnu"}\n- Tree hash : \`${repo.treeHash || "inconnu"}\`\n- Fichiers indexés : ${repo.indexedCount}\n\n## Principe\n\nLe vault documente le pourquoi. Le repo contient le code qui peut être testé, déployé et audité. Les snapshots doivent lier les deux.\n\n## Fichiers indexés\n\n${files}\n\n## Liens\n\n- [[PovMind - Code repo]]\n- [[PovMind - Snapshots du vault]]\n\n#repo #code #contexte`;
+
+  const existing = findNoteByTitle(title);
+  if (existing) {
+    existing.body = body;
+    existing.folder = "Code";
+    existing.updatedAt = nowIso();
+    state.activeId = existing.id;
+  } else {
+    const createdAt = nowIso();
+    state.notes.unshift({
+      id: uid(),
+      title,
+      folder: "Code",
+      body,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    state.activeId = state.notes[0].id;
+  }
+
+  persistNow(false);
+  renderAll();
+  toast("Note code repo mise à jour.");
+  return activeNote();
+}
+
+async function importVault(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const importedNotes = Array.isArray(parsed.notes) ? parsed.notes.map(cleanNote).filter(Boolean) : [];
+    const importedStarred = new Set(Array.isArray(parsed.starredIds) ? parsed.starredIds.map(String) : []);
+    if (!importedNotes.length) throw new Error("Aucune note valide");
+
+    const replace = confirm("Importer le carnet. OK = remplacer toutes les notes, Annuler = fusionner avec les notes existantes.");
+    if (replace) {
+      const idMap = new Map();
+      state.notes = importedNotes.map((note) => {
+        const nextId = uid();
+        idMap.set(note.id, nextId);
+        return { ...note, id: nextId };
+      });
+      state.starredIds = new Set([...importedStarred].map((id) => idMap.get(id)).filter(Boolean));
+      state.activeId = state.notes[0]?.id || null;
+      state.graphPositions = {};
+      state.graphRuntimePositions = {};
+      if (parsed.security) {
+        state.security = cleanSecurityState(parsed.security);
+        state.assistantToken = "";
+        persistSecurityState();
+      }
+      state.repo = cleanRepoState(parsed.repo);
+      persistRepoState();
+      state.snapshots = Array.isArray(parsed.snapshots) ? parsed.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS) : [];
+      persistSnapshots();
+      persistGraphPositions();
+    } else {
+      const idMap = new Map();
+      const merged = importedNotes.map((note) => {
+        const nextId = uid();
+        idMap.set(note.id, nextId);
+        return {
+          ...note,
+          id: nextId,
+          title: uniqueTitle(note.title),
+          updatedAt: nowIso(),
+        };
+      });
+      state.notes = [...merged, ...state.notes];
+      if (parsed.repo && !repoIsLinked()) {
+        state.repo = cleanRepoState(parsed.repo);
+        persistRepoState();
+      }
+      if (Array.isArray(parsed.snapshots)) {
+        const importedSnapshots = parsed.snapshots.map(cleanSnapshot).filter(Boolean);
+        const byId = new Map([...state.snapshots, ...importedSnapshots].map((snapshot) => [snapshot.id, snapshot]));
+        state.snapshots = [...byId.values()]
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, MAX_SNAPSHOTS);
+        persistSnapshots();
+      }
+      for (const id of importedStarred) {
+        const nextId = idMap.get(id);
+        if (nextId) state.starredIds.add(nextId);
+      }
+      state.activeId = merged[0]?.id || state.activeId;
+    }
+    persistStarredIds();
+    persistNow(true);
+    renderAll();
+    toast("Import terminé.");
+  } catch (error) {
+    console.error(error);
+    toast("Import impossible : fichier JSON invalide.");
+  } finally {
+    els.importInput.value = "";
+  }
+}
+
+function cycleView() {
+  const order = ["split", "edit", "preview"];
+  const current = order.indexOf(state.view);
+  state.view = order[(current + 1) % order.length];
+  localStorage.setItem(VIEW_KEY, state.view);
+  renderActiveNote();
+}
+
+function defaultTemplateTitle(template) {
+  const date = formatLocalDate();
+  if (template.id === "project") return `Projet ${state.notes.filter((note) => normalizeFolder(note.folder) === "Projets").length + 1}`;
+  if (template.id === "meeting") return `Réunion - ${date}`;
+  if (template.id === "research") return `Recherche - ${date}`;
+  if (template.id === "daily") return `Journal - ${date}`;
+  return `Note ${state.notes.length + 1}`;
+}
+
+function createNoteFromTemplate(templateId) {
+  const template = NOTE_TEMPLATES.find((item) => item.id === templateId);
+  if (!template) return;
+  if (template.id === "daily") {
+    createDailyNote();
+    closeTemplatePicker();
+    return;
+  }
+
+  const title = defaultTemplateTitle(template);
+  createNote(title, template.body(title), { folder: template.folder });
+  closeTemplatePicker();
+}
+
+function createDailyNote() {
+  const template = NOTE_TEMPLATES.find((item) => item.id === "daily");
+  const title = `Journal - ${formatLocalDate()}`;
+  const existing = state.notes.find((note) => normalizeFolder(note.folder) === "Journal" && normalizeTitle(note.title) === normalizeTitle(title));
+  if (existing) {
+    selectNote(existing.id);
+    toast("Journal du jour ouvert.");
+    return existing;
+  }
+  const note = createNote(title, template.body(title), { folder: "Journal" });
+  toast("Journal du jour créé.");
+  return note;
+}
+
+function renderTemplatePicker() {
+  els.templateList.innerHTML = NOTE_TEMPLATES.map((template) => `
+    <button class="template-card" type="button" data-template-id="${attr(template.id)}">
+      ${escapeHtml(template.name)}
+      <span>${escapeHtml(template.folder)} · ${escapeHtml(defaultTemplateTitle(template))}</span>
+    </button>`)
+    .join("");
+}
+
+function openTemplatePicker() {
+  renderTemplatePicker();
+  els.templatePicker.hidden = false;
+}
+
+function closeTemplatePicker() {
+  els.templatePicker.hidden = true;
+}
+
+function toggleActiveStar() {
+  const note = activeNote();
+  if (!note) return;
+  if (isStarred(note.id)) {
+    state.starredIds.delete(note.id);
+    toast("Favori retiré.");
+  } else {
+    state.starredIds.add(note.id);
+    toast("Note ajoutée aux favoris.");
+  }
+  persistStarredIds();
+  persistNow(false);
+  renderAll();
+}
+
+function resetGraphLayout() {
+  state.graphPositions = {};
+  state.graphRuntimePositions = {};
+  persistGraphPositions();
+  renderGraph();
+  toast("Graphe réorganisé.");
+}
+
+function resetPanelLayout(kind = "all") {
+  if (kind === "sidebar" || kind === "all") state.layout.sidebarWidth = DEFAULT_LAYOUT.sidebarWidth;
+  if (kind === "inspector" || kind === "all") state.layout.inspectorWidth = DEFAULT_LAYOUT.inspectorWidth;
+  if (kind === "editor" || kind === "all") state.layout.editorPaneWidth = DEFAULT_LAYOUT.editorPaneWidth;
+  if (kind === "graph" || kind === "all") state.layout.graphHeight = DEFAULT_LAYOUT.graphHeight;
+  applyLayoutSettings(kind === "all" ? null : kind);
+  persistLayoutSettings();
+  toast(kind === "all" ? "Fenêtres réinitialisées." : "Fenêtre réinitialisée.");
+}
+
+function currentEditorPaneWidth() {
+  return els.editorGrid?.querySelector(".editor-panel")?.getBoundingClientRect().width || 0;
+}
+
+function startLayoutResize(kind, event) {
+  if (window.matchMedia("(max-width: 1180px)").matches && kind !== "editor" && kind !== "graph") return;
+  const base = kind === "sidebar"
+    ? state.layout.sidebarWidth
+    : kind === "inspector"
+      ? state.layout.inspectorWidth
+      : kind === "graph"
+        ? state.layout.graphHeight
+        : currentEditorPaneWidth();
+
+  state.layoutDragging = {
+    kind,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    base,
+  };
+
+  const handle = kind === "sidebar"
+    ? els.sidebarResizer
+    : kind === "inspector"
+      ? els.inspectorResizer
+      : kind === "graph"
+        ? els.graphResizeHandle
+        : els.editorResizer;
+
+  handle?.classList.add("active");
+  handle?.setPointerCapture?.(event.pointerId);
+  els.editorGrid.classList.toggle("resizing", kind === "editor");
+  els.graphCard.classList.toggle("resizing", kind === "graph");
+  document.querySelector(".app-shell")?.classList.toggle("resizing", kind !== "editor");
+  document.body.style.cursor = kind === "graph" ? "row-resize" : "col-resize";
+  event.preventDefault();
+}
+
+function updateLayoutResize(event) {
+  const drag = state.layoutDragging;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+
+  const dx = event.clientX - drag.startX;
+  if (drag.kind === "sidebar") {
+    state.layout.sidebarWidth = drag.base + dx;
+  }
+  if (drag.kind === "inspector") {
+    state.layout.inspectorWidth = drag.base - dx;
+  }
+  if (drag.kind === "editor") {
+    state.layout.editorPaneWidth = drag.base + dx;
+  }
+  if (drag.kind === "graph") {
+    state.layout.graphHeight = drag.base + (event.clientY - drag.startY);
+  }
+
+  applyLayoutSettings(drag.kind);
+  event.preventDefault();
+}
+
+function stopLayoutResize(event) {
+  const drag = state.layoutDragging;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+
+  const handle = drag.kind === "sidebar"
+    ? els.sidebarResizer
+    : drag.kind === "inspector"
+      ? els.inspectorResizer
+      : drag.kind === "graph"
+        ? els.graphResizeHandle
+        : els.editorResizer;
+
+  handle?.classList.remove("active");
+  handle?.releasePointerCapture?.(event.pointerId);
+  els.editorGrid.classList.remove("resizing");
+  els.graphCard.classList.remove("resizing");
+  document.querySelector(".app-shell")?.classList.remove("resizing");
+  document.body.style.cursor = "";
+  state.layoutDragging = null;
+  persistLayoutSettings();
+}
+
+function nudgePanelLayout(kind, direction) {
+  const step = 24 * direction;
+  if (kind === "sidebar") state.layout.sidebarWidth += step;
+  if (kind === "inspector") state.layout.inspectorWidth -= step;
+  if (kind === "editor") state.layout.editorPaneWidth = (state.layout.editorPaneWidth || currentEditorPaneWidth()) + step;
+  if (kind === "graph") state.layout.graphHeight += step;
+  applyLayoutSettings(kind);
+  persistLayoutSettings();
+}
+
+function handleResizerKeydown(kind, event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    resetPanelLayout(kind);
+    return;
+  }
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
+  const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+  nudgePanelLayout(kind, direction);
+}
+
+function toggleGraphFullscreen(force = !state.graphFullscreen) {
+  state.graphFullscreen = Boolean(force);
+  els.graphCard.classList.toggle("graph-fullscreen", state.graphFullscreen);
+  document.body.classList.toggle("graph-modal-open", state.graphFullscreen);
+  els.graphFullscreenBtn.setAttribute("aria-label", state.graphFullscreen ? "Quitter le plein écran" : "Afficher le graphe en plein écran");
+  els.graphFullscreenBtn.title = state.graphFullscreen ? "Quitter le plein écran" : "Plein écran";
+  els.graphFullscreenBtn.textContent = state.graphFullscreen ? "×" : "⛶";
+}
+
+function commandDefinitions(query = "") {
+  const cleanQuery = query.trim();
+  const commands = [
+    {
+      title: "Nouvelle note",
+      detail: "Créer une note vide",
+      run: () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"),
+    },
+    {
+      title: "Journal du jour",
+      detail: "Ouvrir ou créer la note quotidienne",
+      run: createDailyNote,
+    },
+    {
+      title: "Ouvrir la documentation PovMind",
+      detail: "Créer ou ouvrir le vault qui documente l'app",
+      run: () => ensureDocumentationVault({ select: true }),
+    },
+    {
+      title: "Choisir un template",
+      detail: "Projet, réunion, recherche ou journal",
+      run: openTemplatePicker,
+    },
+    {
+      title: isStarred(state.activeId) ? "Retirer des favoris" : "Ajouter aux favoris",
+      detail: activeNote()?.title || "Note active",
+      run: toggleActiveStar,
+    },
+    {
+      title: "Changer de vue",
+      detail: "Basculer édition, aperçu ou split",
+      run: cycleView,
+    },
+    {
+      title: "Exporter la note",
+      detail: "Télécharger la note active en Markdown",
+      run: exportMarkdown,
+    },
+    {
+      title: "Exporter le carnet",
+      detail: "Télécharger toutes les notes en JSON",
+      run: exportVault,
+    },
+    {
+      title: "Créer un snapshot",
+      detail: "Figer le vault avec hash global",
+      run: createVaultSnapshot,
+    },
+    {
+      title: "Exporter le dernier snapshot",
+      detail: "Télécharger le snapshot JSON complet",
+      run: () => exportSnapshot(),
+    },
+    {
+      title: "Créer la note Code Repo",
+      detail: repoIsLinked() ? "Documenter le repo lié" : "Aucun repo lié",
+      run: ensureCodeRepoNote,
+    },
+    {
+      title: "Exporter le manifest repo",
+      detail: repoIsLinked() ? "Télécharger le contexte code" : "Aucun repo lié",
+      run: exportRepoManifest,
+    },
+    {
+      title: "Exporter Codex KB",
+      detail: "Générer un zip de base de connaissance",
+      run: exportCodexKnowledgeBase,
+    },
+    {
+      title: "Exporter MCP sécurisé",
+      detail: "Générer un serveur MCP protégé par token",
+      run: exportMcpBundle,
+    },
+    {
+      title: "Générer un token assistant",
+      detail: "Créer un token crypto pour ce vault",
+      run: generateAssistantToken,
+    },
+    {
+      title: "Réinitialiser le graphe",
+      detail: "Effacer les positions manuelles",
+      run: resetGraphLayout,
+    },
+    {
+      title: state.graphFullscreen ? "Quitter le plein écran du graphe" : "Graphe en plein écran",
+      detail: "Agrandir ou fermer la carte du graphe",
+      run: () => toggleGraphFullscreen(),
+    },
+    {
+      title: "Réinitialiser les fenêtres",
+      detail: "Revenir aux largeurs par défaut",
+      run: () => resetPanelLayout("all"),
+    },
+  ];
+
+  if (cleanQuery && !findNoteByTitle(cleanQuery)) {
+    commands.unshift({
+      title: `Créer « ${cleanQuery} »`,
+      detail: state.folderFilter || activeNote()?.folder || ROOT_FOLDER,
+      run: () => createNote(cleanQuery, `# ${cleanQuery}\n\n`, { folder: state.folderFilter || activeNote()?.folder || ROOT_FOLDER }),
+    });
+  }
+
+  return commands;
+}
+
+function buildCommandItems(query = "") {
+  const needle = query.trim().toLocaleLowerCase("fr-FR");
+  const baseCommands = commandDefinitions(query).map((command) => ({ ...command, type: "Commande" }));
+  const noteCommands = state.notes.map((note) => ({
+    title: note.title,
+    detail: `${normalizeFolder(note.folder)} · ${clampText(note.body.replace(/[#*_`\[\]]/g, ""), 74) || "Note vide"}`,
+    type: "Note",
+    run: () => selectNote(note.id),
+  }));
+
+  return [...baseCommands, ...noteCommands]
+    .filter((item) => {
+      if (!needle) return true;
+      return `${item.title}\n${item.detail}\n${item.type}`.toLocaleLowerCase("fr-FR").includes(needle);
+    })
+    .slice(0, 48);
+}
+
+function renderCommandPalette() {
+  const query = els.commandInput.value;
+  const items = buildCommandItems(query);
+  state.commandItems = items;
+  state.commandIndex = clamp(state.commandIndex, 0, Math.max(0, items.length - 1));
+
+  if (!items.length) {
+    els.commandResults.innerHTML = `<div class="empty-state">Aucun résultat.</div>`;
+    return;
+  }
+
+  els.commandResults.innerHTML = items
+    .map((item, index) => `
+      <button class="command-item${index === state.commandIndex ? " active" : ""}" type="button" data-command-index="${index}" role="option" aria-selected="${index === state.commandIndex}">
+        ${escapeHtml(item.title)}
+        <span>${escapeHtml(item.type)} · ${escapeHtml(item.detail)}</span>
+      </button>`)
+    .join("");
+}
+
+function openCommandPalette(initialQuery = "") {
+  state.commandIndex = 0;
+  els.commandPalette.hidden = false;
+  els.commandInput.value = initialQuery;
+  renderCommandPalette();
+  requestAnimationFrame(() => els.commandInput.focus());
+}
+
+function closeCommandPalette() {
+  els.commandPalette.hidden = true;
+  state.commandItems = [];
+}
+
+function runCommandItem(index = state.commandIndex) {
+  const item = state.commandItems[index];
+  if (!item) return;
+  closeCommandPalette();
+  item.run();
+}
+
+let toastTimer = null;
+function toast(message) {
+  clearTimeout(toastTimer);
+  els.toast.textContent = message;
+  els.toast.classList.add("show");
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+}
+
+function resetDemo() {
+  const ok = confirm("Réinitialiser le carnet avec les notes de démonstration ? Les notes actuelles seront remplacées.");
+  if (!ok) return;
+  state.notes = seedNotes();
+  state.activeId = state.notes[0].id;
+  state.tagFilter = null;
+  state.folderFilter = null;
+  state.search = "";
+  state.starredIds = new Set([state.notes[0].id]);
+  state.graphPositions = {};
+  state.graphRuntimePositions = {};
+  state.snapshots = [];
+  state.repo = cleanRepoState(null);
+  els.searchInput.value = "";
+  ensureDocumentationVault({ silent: true });
+  persistStarredIds();
+  persistGraphPositions();
+  persistSnapshots();
+  persistRepoState();
+  persistNow(true);
+  renderAll();
+  toast("Démo réinitialisée.");
+}
+
+function handleEditorInput() {
+  const note = activeNote();
+  if (!note) return;
+  updateActiveNote({ body: els.editor.value });
+  els.wordCount.textContent = `${countWords(els.editor.value)} ${countWords(els.editor.value) > 1 ? "mots" : "mot"}`;
+  renderPreview();
+  renderVaultStats();
+  renderBacklinks();
+  renderNoteTags();
+  renderOutgoingLinks();
+  renderTagFilters();
+  renderNotesList();
+  renderGraph();
+}
+
+function handleTitleInput() {
+  const note = activeNote();
+  if (!note) return;
+  updateActiveNote({ title: els.titleInput.value || "Sans titre" });
+  renderPreview();
+  renderVaultStats();
+  renderBacklinks();
+  renderNoteTags();
+  renderOutgoingLinks();
+  renderTagFilters();
+  renderFolderSuggestions();
+  renderStarredList();
+  renderNotesList();
+  renderGraph();
+}
+
+function handleFolderInput() {
+  const note = activeNote();
+  if (!note) return;
+  updateActiveNote({ folder: normalizeFolder(els.folderInput.value) });
+  renderVaultStats();
+  renderFolderFilters();
+  renderFolderSuggestions();
+  renderStarredList();
+  renderNotesList();
+}
+
+function bindEvents() {
+  els.newNoteBtn.addEventListener("click", () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"));
+  els.dailyNoteBtn.addEventListener("click", createDailyNote);
+  els.docVaultBtn.addEventListener("click", () => ensureDocumentationVault({ select: true }));
+  els.commandPaletteBtn.addEventListener("click", () => openCommandPalette());
+  els.deleteNoteBtn.addEventListener("click", deleteActiveNote);
+  els.starNoteBtn.addEventListener("click", toggleActiveStar);
+  els.templateBtn.addEventListener("click", openTemplatePicker);
+  els.viewModeBtn.addEventListener("click", cycleView);
+  els.exportVaultBtn.addEventListener("click", exportVault);
+  els.createSnapshotBtn.addEventListener("click", () => createVaultSnapshot());
+  els.exportSnapshotBtn.addEventListener("click", () => exportSnapshot());
+  els.importRepoBtn.addEventListener("click", () => els.repoManifestInput.click());
+  els.repoManifestInput.addEventListener("change", (event) => importRepoManifest(event.target.files?.[0]));
+  els.exportRepoBtn.addEventListener("click", exportRepoManifest);
+  els.codeRepoNoteBtn.addEventListener("click", ensureCodeRepoNote);
+  els.exportMcpBtn.addEventListener("click", exportMcpBundle);
+  els.exportCodexBtn.addEventListener("click", exportCodexKnowledgeBase);
+  els.exportMdBtn.addEventListener("click", exportMarkdown);
+  els.resetDemoBtn.addEventListener("click", resetDemo);
+  els.generateTokenBtn.addEventListener("click", () => generateAssistantToken());
+  els.copyTokenBtn.addEventListener("click", copyAssistantToken);
+  els.securityExportMcpBtn.addEventListener("click", exportMcpBundle);
+  els.importBtn.addEventListener("click", () => els.importInput.click());
+  els.importInput.addEventListener("change", (event) => importVault(event.target.files?.[0]));
+
+  els.snapshotsList.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-snapshot-id]");
+    if (row) exportSnapshot(row.dataset.snapshotId);
+  });
+
+  els.searchInput.addEventListener("input", () => {
+    state.search = els.searchInput.value;
+    renderNotesList();
+  });
+
+  els.notesList.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-note-id]");
+    if (row) selectNote(row.dataset.noteId);
+  });
+
+  els.starredList.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-note-id]");
+    if (row) selectNote(row.dataset.noteId);
+  });
+
+  els.backlinks.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-note-id]");
+    if (row) selectNote(row.dataset.noteId);
+  });
+
+  els.tagFilters.addEventListener("click", (event) => {
+    const clear = event.target.closest("[data-tag-clear]");
+    const tag = event.target.closest("[data-tag]");
+    if (clear) state.tagFilter = null;
+    if (tag) state.tagFilter = tag.dataset.tag;
+    renderAll();
+  });
+
+  els.folderFilters.addEventListener("click", (event) => {
+    const clear = event.target.closest("[data-folder-clear]");
+    const folder = event.target.closest("[data-folder]");
+    if (clear) state.folderFilter = null;
+    if (folder) state.folderFilter = folder.dataset.folder;
+    renderAll();
+  });
+
+  els.noteTags.addEventListener("click", (event) => {
+    const tag = event.target.closest("[data-tag]");
+    if (!tag) return;
+    state.tagFilter = tag.dataset.tag;
+    renderAll();
+  });
+
+  els.editor.addEventListener("input", handleEditorInput);
+  els.titleInput.addEventListener("input", handleTitleInput);
+  els.folderInput.addEventListener("input", handleFolderInput);
+  els.folderInput.addEventListener("blur", renderActiveNote);
+
+  els.preview.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-note-title]");
+    if (!link) return;
+    event.preventDefault();
+    const title = link.dataset.noteTitle;
+    const note = findNoteByTitle(title) || createNote(title, `# ${title}\n\n`);
+    selectNote(note.id);
+  });
+
+  els.outgoingLinks.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-note-title]");
+    if (!link) return;
+    const title = link.dataset.noteTitle;
+    const note = findNoteByTitle(title) || createNote(title, `# ${title}\n\n`);
+    selectNote(note.id);
+  });
+
+  els.templateList.addEventListener("click", (event) => {
+    const template = event.target.closest("[data-template-id]");
+    if (template) createNoteFromTemplate(template.dataset.templateId);
+  });
+
+  els.closeTemplateBtn.addEventListener("click", closeTemplatePicker);
+  els.templatePicker.addEventListener("click", (event) => {
+    if (event.target === els.templatePicker) closeTemplatePicker();
+  });
+
+  els.commandInput.addEventListener("input", () => {
+    state.commandIndex = 0;
+    renderCommandPalette();
+  });
+
+  els.commandInput.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      state.commandIndex = clamp(state.commandIndex + 1, 0, Math.max(0, state.commandItems.length - 1));
+      renderCommandPalette();
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      state.commandIndex = clamp(state.commandIndex - 1, 0, Math.max(0, state.commandItems.length - 1));
+      renderCommandPalette();
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runCommandItem();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+    }
+  });
+
+  els.commandResults.addEventListener("mousemove", (event) => {
+    const item = event.target.closest("[data-command-index]");
+    if (!item) return;
+    const index = Number(item.dataset.commandIndex);
+    if (Number.isInteger(index) && index !== state.commandIndex) {
+      state.commandIndex = index;
+      renderCommandPalette();
+    }
+  });
+
+  els.commandResults.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-command-index]");
+    if (!item) return;
+    runCommandItem(Number(item.dataset.commandIndex));
+  });
+
+  els.commandPalette.addEventListener("click", (event) => {
+    if (event.target === els.commandPalette) closeCommandPalette();
+  });
+
+  els.graph.addEventListener("pointerdown", handleGraphPointerDown);
+  els.graph.addEventListener("pointermove", handleGraphPointerMove);
+  els.graph.addEventListener("pointerup", handleGraphPointerUp);
+  els.graph.addEventListener("pointercancel", handleGraphPointerUp);
+  els.graph.addEventListener("lostpointercapture", handleGraphPointerUp);
+
+  els.graph.addEventListener("click", (event) => {
+    if (state.graphClickSuppressed) {
+      state.graphClickSuppressed = false;
+      event.preventDefault();
+      return;
+    }
+
+    const node = event.target.closest("[data-node-id]");
+    if (!node) return;
+    openGraphNode(node.dataset.nodeId, node.dataset.noteTitle);
+  });
+
+  els.graph.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const node = event.target.closest("[data-node-id]");
+    if (!node) return;
+    event.preventDefault();
+    openGraphNode(node.dataset.nodeId, node.dataset.noteTitle);
+  });
+
+  els.graphFullscreenBtn.addEventListener("click", () => toggleGraphFullscreen());
+  els.graphResizeHandle.addEventListener("pointerdown", (event) => startLayoutResize("graph", event));
+  els.graphResizeHandle.addEventListener("dblclick", () => resetPanelLayout("graph"));
+  els.graphResizeHandle.addEventListener("keydown", (event) => handleResizerKeydown("graph", event));
+
+  els.sidebarResizer.addEventListener("pointerdown", (event) => startLayoutResize("sidebar", event));
+  els.inspectorResizer.addEventListener("pointerdown", (event) => startLayoutResize("inspector", event));
+  els.editorResizer.addEventListener("pointerdown", (event) => startLayoutResize("editor", event));
+  els.sidebarResizer.addEventListener("dblclick", () => resetPanelLayout("sidebar"));
+  els.inspectorResizer.addEventListener("dblclick", () => resetPanelLayout("inspector"));
+  els.editorResizer.addEventListener("dblclick", () => resetPanelLayout("editor"));
+  els.sidebarResizer.addEventListener("keydown", (event) => handleResizerKeydown("sidebar", event));
+  els.inspectorResizer.addEventListener("keydown", (event) => handleResizerKeydown("inspector", event));
+  els.editorResizer.addEventListener("keydown", (event) => handleResizerKeydown("editor", event));
+  document.addEventListener("pointermove", updateLayoutResize);
+  document.addEventListener("pointerup", stopLayoutResize);
+  document.addEventListener("pointercancel", stopLayoutResize);
+  window.addEventListener("resize", () => {
+    applyLayoutSettings();
+    persistLayoutSettings();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (state.graphFullscreen) {
+        toggleGraphFullscreen(false);
+        return;
+      }
+      if (!els.commandPalette.hidden) {
+        closeCommandPalette();
+        return;
+      }
+      if (!els.templatePicker.hidden) {
+        closeTemplatePicker();
+        return;
+      }
+    }
+
+    if (!els.commandPalette.hidden || !els.templatePicker.hidden) return;
+
+    const modifier = event.ctrlKey || event.metaKey;
+    if (!modifier) return;
+    const key = event.key.toLocaleLowerCase("fr-FR");
+    if (key === "n") {
+      event.preventDefault();
+      createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n");
+    }
+    if (key === "k") {
+      event.preventDefault();
+      els.searchInput.focus();
+      els.searchInput.select();
+    }
+    if (key === "p") {
+      event.preventDefault();
+      openCommandPalette();
+    }
+    if (key === "d") {
+      event.preventDefault();
+      createDailyNote();
+    }
+    if (key === "e") {
+      event.preventDefault();
+      cycleView();
+    }
+    if (key === "s") {
+      event.preventDefault();
+      persistNow(true);
+      toast("Sauvegardé.");
+    }
+  });
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // L'ouverture directe en file:// ne permet pas d'enregistrer un service worker.
+    });
+  });
+}
+
+applyLayoutSettings();
+loadStore();
+ensureDocumentationVault({ silent: true });
+bindEvents();
+renderAll();
+registerServiceWorker();
