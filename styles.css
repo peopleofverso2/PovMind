@@ -303,6 +303,58 @@ button:disabled {
   letter-spacing: 0;
 }
 
+.vault-switcher {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.vault-select-field {
+  display: grid;
+  gap: 5px;
+}
+
+.vault-select-field span,
+.vault-registry-meta {
+  color: var(--muted-2);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.vault-select-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 9px;
+  color: var(--ink);
+  background: #ffffff;
+  font-weight: 850;
+}
+
+.vault-switcher-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.vault-switcher-actions .ghost-btn {
+  min-height: 34px;
+  padding: 8px 9px;
+  text-align: center;
+}
+
+.vault-registry-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .search-box {
   display: flex;
   align-items: center;

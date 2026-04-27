@@ -6,6 +6,7 @@ PovMind is designed around local-first vaults, cryptographic assistant tokens, a
 
 - Assistant access is protected by `POVMIND_VAULT_TOKEN`.
 - PovMind stores `SHA-256(vaultId:token)`, not the full token.
+- Local multi-vault storage isolates notes, assistant tokens, repo manifests, snapshots, layout, and graph data under `povmind:vault:{vaultId}:...`.
 - Repo manifests are read-only and exclude common secret paths, ignored files, generated output, and heavy caches.
 - MCP bundles expose notes and optional repo files only after token verification.
 
@@ -14,6 +15,7 @@ PovMind is designed around local-first vaults, cryptographic assistant tokens, a
 - Notes are not encrypted at rest in browser `localStorage`.
 - There is no hosted multi-user authentication layer yet.
 - Token rotation is per vault, not per assistant identity.
+- Vault deletion, restore, and cloud sync are not implemented yet.
 
 ## Reporting
 

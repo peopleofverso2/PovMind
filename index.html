@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.4.1" />
+  <meta name="povmind-version" content="0.5.0" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.4.1" />
+  <link rel="stylesheet" href="styles.css?v=0.5.0" />
 </head>
 <body>
   <div class="app-shell">
@@ -40,6 +40,18 @@
       </header>
 
       <div id="vaultStats" class="vault-stats" aria-label="Statistiques du carnet"></div>
+
+      <section class="vault-switcher" aria-label="Vault actif">
+        <label class="vault-select-field">
+          <span>Vault actif</span>
+          <select id="vaultSelect" aria-label="Choisir un vault PovMind"></select>
+        </label>
+        <div class="vault-switcher-actions">
+          <button id="newVaultBtn" class="ghost-btn" type="button">Nouveau vault</button>
+          <button id="renameVaultBtn" class="ghost-btn" type="button">Renommer</button>
+        </div>
+        <div id="vaultRegistryMeta" class="vault-registry-meta">Local-first</div>
+      </section>
 
       <div class="sidebar-actions">
         <button id="newNoteBtn" class="primary-btn" type="button">Nouvelle note</button>
@@ -229,6 +241,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.4.1"></script>
+  <script src="app.js?v=0.5.0"></script>
 </body>
 </html>

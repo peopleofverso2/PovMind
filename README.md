@@ -14,6 +14,8 @@ Un vault PovMind doit relier trois choses :
 
 L'objectif est qu'un assistant travaille toujours avec un contexte vérifiable : notes + snapshot + repo lié, protégés par un token assistant.
 
+Depuis `0.5.0`, PovMind gère aussi un registre local de vaults : chaque vault isole ses notes, tokens, snapshots, repo, layout et graphe sous une clé `povmind:vault:{vaultId}:...`.
+
 ## Lancer l'app
 
 Option simple : ouvre `index.html` dans ton navigateur.
@@ -73,6 +75,7 @@ git push -u origin main
 - Palette de commandes avec recherche de commandes et de notes.
 - Templates de notes : vide, projet, réunion, recherche et journal.
 - Vault interne “Documentation PovMind” pour documenter l'app depuis l'app.
+- Registre multi-vault local-first avec création, ouverture et renommage.
 - Snapshots versionnés du vault avec hash global SHA-256.
 - Connexion à un repo de code via manifeste read-only.
 - Backlinks de la note active.
@@ -140,6 +143,19 @@ Les notes sont stockées dans `localStorage` du navigateur. Pour sauvegarder hor
 
 Le manifest repo est lui aussi stocké localement sous `povmind:repo`; il reste read-only et peut être régénéré depuis le repo source à tout moment.
 
+Le stockage multi-vault utilise :
+
+```txt
+povmind:vaults:index
+povmind:vaults:active
+povmind:vault:{vaultId}:notes
+povmind:vault:{vaultId}:security
+povmind:vault:{vaultId}:repo
+povmind:vault:{vaultId}:snapshots
+```
+
+Les anciennes clés mono-vault sont migrées doucement vers le premier vault local.
+
 ## Accès assistant sécurisé
 
 Le panneau “Accès assistant” génère un token `povm_...` avec Web Crypto. PovMind stocke seulement `SHA-256(vaultId:token)`, pas le secret complet.
@@ -177,6 +193,7 @@ Le journal reste la mémoire narrative. Le snapshot est la preuve d'état exacte
 
 - Pas de synchronisation cloud directe.
 - Pas de vrai système de fichiers local natif.
+- Pas encore de suppression/restauration forte de vault.
 - Markdown volontairement simple, sans toutes les extensions avancées.
 - Graphe simplifié : les positions déplacées sont mémorisées localement, sans moteur physique complet.
 - Intégration repo par manifeste statique : elle ne clone pas, ne commit pas et ne pousse pas encore vers GitHub/GitLab.

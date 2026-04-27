@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.4.1";
+const APP_VERSION = "0.5.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -9,6 +9,8 @@ const SECURITY_KEY = "povmind:security";
 const DOC_VAULT_KEY = "povmind:doc-vault:v1";
 const SNAPSHOTS_KEY = "povmind:snapshots";
 const REPO_KEY = "povmind:repo";
+const VAULTS_INDEX_KEY = "povmind:vaults:index";
+const ACTIVE_VAULT_KEY = "povmind:vaults:active";
 const LEGACY_STORAGE_KEY = "graphnotes:v1";
 const LEGACY_VIEW_KEY = "graphnotes:view";
 const LEGACY_GRAPH_LAYOUT_KEY = "graphnotes:graph-layout";
@@ -65,6 +67,10 @@ const els = {
   searchInput: document.getElementById("searchInput"),
   tagFilters: document.getElementById("tagFilters"),
   notesList: document.getElementById("notesList"),
+  vaultSelect: document.getElementById("vaultSelect"),
+  newVaultBtn: document.getElementById("newVaultBtn"),
+  renameVaultBtn: document.getElementById("renameVaultBtn"),
+  vaultRegistryMeta: document.getElementById("vaultRegistryMeta"),
   exportVaultBtn: document.getElementById("exportVaultBtn"),
   exportMcpBtn: document.getElementById("exportMcpBtn"),
   exportCodexBtn: document.getElementById("exportCodexBtn"),
@@ -128,13 +134,16 @@ const els = {
   repoFilesList: document.getElementById("repoFilesList"),
 };
 
+let vaultRegistry = initializeVaultRegistry();
+let activeVaultId = vaultRegistry.activeId;
+
 const state = {
   notes: [],
   activeId: null,
   search: "",
   tagFilter: null,
   folderFilter: null,
-  view: readStoredValue(VIEW_KEY, LEGACY_VIEW_KEY) || "split",
+  view: readVaultStoredValue("view", VIEW_KEY, LEGACY_VIEW_KEY) || "split",
   saveTimer: null,
   starredIds: loadStarredIds(),
   commandItems: [],
@@ -169,6 +178,125 @@ function createVaultId() {
   return `vlt_${randomBase64Url(18)}`;
 }
 
+function vaultStorageKey(kind, vaultId = activeVaultId) {
+  return `povmind:vault:${vaultId}:${kind}`;
+}
+
+function readVaultStoredValue(kind, primaryLegacyKey = null, secondaryLegacyKey = null, vaultId = activeVaultId) {
+  const current = localStorage.getItem(vaultStorageKey(kind, vaultId));
+  if (current !== null) return current;
+  const primary = primaryLegacyKey ? localStorage.getItem(primaryLegacyKey) : null;
+  if (primary !== null) return primary;
+  return secondaryLegacyKey ? localStorage.getItem(secondaryLegacyKey) : null;
+}
+
+function cleanVaultName(name, fallback = "Vault PovMind") {
+  return String(name || fallback).trim().replace(/\s+/g, " ").slice(0, 64) || fallback;
+}
+
+function cleanVaultRegistry(value) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.vaults)) return null;
+  const seen = new Set();
+  const vaults = value.vaults
+    .map((vault) => {
+      if (!vault || typeof vault !== "object") return null;
+      const id = String(vault.id || "").trim();
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        id,
+        name: cleanVaultName(vault.name, "Vault PovMind"),
+        createdAt: String(vault.createdAt || nowIso()),
+        updatedAt: String(vault.updatedAt || vault.createdAt || nowIso()),
+        noteCount: Number.isFinite(Number(vault.noteCount)) ? Number(vault.noteCount) : 0,
+        tokenSealed: Boolean(vault.tokenSealed),
+      };
+    })
+    .filter(Boolean);
+  if (!vaults.length) return null;
+  const storedActive = String(localStorage.getItem(ACTIVE_VAULT_KEY) || value.activeId || "");
+  const activeId = vaults.some((vault) => vault.id === storedActive) ? storedActive : vaults[0].id;
+  return { version: 1, activeId, vaults };
+}
+
+function persistVaultRegistry() {
+  vaultRegistry = cleanVaultRegistry(vaultRegistry) || vaultRegistry;
+  vaultRegistry.activeId = activeVaultId;
+  localStorage.setItem(VAULTS_INDEX_KEY, JSON.stringify(vaultRegistry, null, 2));
+  localStorage.setItem(ACTIVE_VAULT_KEY, activeVaultId);
+}
+
+function migrateLegacyVaultToNamespaced(vaultId, security) {
+  const pairs = [
+    ["notes", readStoredValue(STORAGE_KEY, LEGACY_STORAGE_KEY)],
+    ["view", readStoredValue(VIEW_KEY, LEGACY_VIEW_KEY)],
+    ["graph-layout", readStoredValue(GRAPH_LAYOUT_KEY, LEGACY_GRAPH_LAYOUT_KEY)],
+    ["starred", readStoredValue(STARRED_KEY, LEGACY_STARRED_KEY)],
+    ["layout", localStorage.getItem(LAYOUT_KEY)],
+    ["security", JSON.stringify(security, null, 2)],
+    ["doc-vault", localStorage.getItem(DOC_VAULT_KEY)],
+    ["snapshots", localStorage.getItem(SNAPSHOTS_KEY)],
+    ["repo", localStorage.getItem(REPO_KEY)],
+  ];
+
+  for (const [kind, raw] of pairs) {
+    const key = vaultStorageKey(kind, vaultId);
+    if (raw !== null && localStorage.getItem(key) === null) localStorage.setItem(key, raw);
+  }
+}
+
+function initializeVaultRegistry() {
+  let parsedRegistry = null;
+  try {
+    parsedRegistry = JSON.parse(localStorage.getItem(VAULTS_INDEX_KEY) || "null");
+  } catch {
+    parsedRegistry = null;
+  }
+  const existing = cleanVaultRegistry(parsedRegistry);
+  if (existing) {
+    localStorage.setItem(ACTIVE_VAULT_KEY, existing.activeId);
+    return existing;
+  }
+
+  let legacySecurity = null;
+  try {
+    legacySecurity = JSON.parse(localStorage.getItem(SECURITY_KEY) || "null");
+  } catch {
+    legacySecurity = null;
+  }
+  const security = cleanSecurityState(legacySecurity);
+  const now = nowIso();
+  const registry = {
+    version: 1,
+    activeId: security.vaultId,
+    vaults: [{
+      id: security.vaultId,
+      name: "PovMind principal",
+      createdAt: now,
+      updatedAt: now,
+      noteCount: 0,
+      tokenSealed: Boolean(security.tokenHash),
+    }],
+  };
+  migrateLegacyVaultToNamespaced(security.vaultId, security);
+  localStorage.setItem(VAULTS_INDEX_KEY, JSON.stringify(registry, null, 2));
+  localStorage.setItem(ACTIVE_VAULT_KEY, security.vaultId);
+  return registry;
+}
+
+function activeVaultRecord() {
+  return vaultRegistry.vaults.find((vault) => vault.id === activeVaultId) || vaultRegistry.vaults[0] || null;
+}
+
+function touchActiveVault() {
+  const record = activeVaultRecord();
+  if (!record) return;
+  record.updatedAt = nowIso();
+  record.noteCount = state.notes.length;
+  record.tokenSealed = Boolean(state.security?.tokenHash);
+  persistVaultRegistry();
+}
+
 async function sha256Hex(value) {
   if (!crypto.subtle) {
     throw new Error("Web Crypto SHA-256 indisponible dans ce navigateur.");
@@ -178,10 +306,10 @@ async function sha256Hex(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function cleanSecurityState(value) {
+function cleanSecurityState(value, forcedVaultId = null) {
   const fallback = {
     version: 1,
-    vaultId: createVaultId(),
+    vaultId: forcedVaultId || createVaultId(),
     tokenHash: "",
     tokenHint: "",
     tokenCreatedAt: "",
@@ -191,11 +319,14 @@ function cleanSecurityState(value) {
   };
 
   if (!value || typeof value !== "object") return fallback;
+  const importedVaultId = String(value.vaultId || "");
+  const vaultId = String(forcedVaultId || importedVaultId || fallback.vaultId);
+  const tokenStillValid = !forcedVaultId || !importedVaultId || importedVaultId === forcedVaultId;
   return {
     ...fallback,
-    vaultId: String(value.vaultId || fallback.vaultId),
-    tokenHash: String(value.tokenHash || ""),
-    tokenHint: String(value.tokenHint || ""),
+    vaultId,
+    tokenHash: tokenStillValid ? String(value.tokenHash || "") : "",
+    tokenHint: tokenStillValid ? String(value.tokenHint || "") : "",
     tokenCreatedAt: String(value.tokenCreatedAt || ""),
     tokenRotatedAt: String(value.tokenRotatedAt || value.tokenCreatedAt || ""),
     algorithm: String(value.algorithm || fallback.algorithm),
@@ -205,14 +336,15 @@ function cleanSecurityState(value) {
 
 function loadSecurityState() {
   try {
-    return cleanSecurityState(JSON.parse(localStorage.getItem(SECURITY_KEY) || "null"));
+    return cleanSecurityState(JSON.parse(localStorage.getItem(vaultStorageKey("security")) || "null"), activeVaultId);
   } catch {
-    return cleanSecurityState(null);
+    return cleanSecurityState(null, activeVaultId);
   }
 }
 
 function persistSecurityState() {
-  localStorage.setItem(SECURITY_KEY, JSON.stringify(state.security, null, 2));
+  localStorage.setItem(vaultStorageKey("security"), JSON.stringify(state.security, null, 2));
+  touchActiveVault();
 }
 
 function assistantTokenHint(token) {
@@ -261,7 +393,7 @@ function cleanSnapshot(snapshot) {
 
 function loadSnapshots() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SNAPSHOTS_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(vaultStorageKey("snapshots")) || "[]");
     return Array.isArray(parsed) ? parsed.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS) : [];
   } catch {
     return [];
@@ -269,7 +401,8 @@ function loadSnapshots() {
 }
 
 function persistSnapshots() {
-  localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(state.snapshots.slice(0, MAX_SNAPSHOTS), null, 2));
+  localStorage.setItem(vaultStorageKey("snapshots"), JSON.stringify(state.snapshots.slice(0, MAX_SNAPSHOTS), null, 2));
+  touchActiveVault();
 }
 
 function latestSnapshot() {
@@ -343,14 +476,15 @@ function cleanRepoState(value) {
 
 function loadRepoState() {
   try {
-    return cleanRepoState(JSON.parse(localStorage.getItem(REPO_KEY) || "null"));
+    return cleanRepoState(JSON.parse(localStorage.getItem(vaultStorageKey("repo")) || "null"));
   } catch {
     return cleanRepoState(null);
   }
 }
 
 function persistRepoState() {
-  localStorage.setItem(REPO_KEY, JSON.stringify(state.repo, null, 2));
+  localStorage.setItem(vaultStorageKey("repo"), JSON.stringify(state.repo, null, 2));
+  touchActiveVault();
 }
 
 function repoIsLinked() {
@@ -443,7 +577,7 @@ function finiteNumber(value) {
 
 function loadLayoutSettings() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+    const parsed = JSON.parse(readVaultStoredValue("layout", LAYOUT_KEY) || "{}");
     return {
       sidebarWidth: finiteNumber(parsed.sidebarWidth) || DEFAULT_LAYOUT.sidebarWidth,
       inspectorWidth: finiteNumber(parsed.inspectorWidth) || DEFAULT_LAYOUT.inspectorWidth,
@@ -457,7 +591,7 @@ function loadLayoutSettings() {
 
 function persistLayoutSettings() {
   localStorage.setItem(
-    LAYOUT_KEY,
+    vaultStorageKey("layout"),
     JSON.stringify({
       version: 1,
       sidebarWidth: state.layout.sidebarWidth,
@@ -547,7 +681,7 @@ function formatLongDate(date = new Date()) {
 
 function loadStarredIds() {
   try {
-    const parsed = JSON.parse(readStoredValue(STARRED_KEY, LEGACY_STARRED_KEY) || "[]");
+    const parsed = JSON.parse(readVaultStoredValue("starred", STARRED_KEY, LEGACY_STARRED_KEY) || "[]");
     return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
   } catch {
     return new Set();
@@ -555,7 +689,8 @@ function loadStarredIds() {
 }
 
 function persistStarredIds() {
-  localStorage.setItem(STARRED_KEY, JSON.stringify([...state.starredIds]));
+  localStorage.setItem(vaultStorageKey("starred"), JSON.stringify([...state.starredIds]));
+  touchActiveVault();
 }
 
 function isStarred(noteId) {
@@ -620,7 +755,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Auth et multivault",
       folder: "Documentation PovMind",
-      body: `# PovMind - Auth et multivault\n\nÉtat produit au 2026-04-27 : l'auth assistant est fonctionnelle pour un vault, mais l'auth utilisateur et le vrai multivault restent à construire.\n\n## Déjà en place\n\n- \`vaultId\` cryptographique par vault courant.\n- Token assistant \`povm_...\` généré côté navigateur.\n- Stockage uniquement de \`SHA-256(vaultId:token)\`.\n- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.\n- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.\n- Snapshots reliés au vault, au commit repo et au \`repoTreeHash\`.\n\n## Pas encore en place\n\n- Pas de login utilisateur.\n- Pas de backend de comptes.\n- Pas de sélecteur multi-vault.\n- Pas de stockage cloud par vault.\n- Pas de chiffrement at-rest des notes dans \`localStorage\`.\n- Pas encore de token par assistant, de révocation fine ou de journal d'accès.\n\n## Multivault aujourd'hui\n\nLe concept existe, mais l'implémentation est encore mono-vault par navigateur/origin. Les clés sont globales : \`povmind:v1\`, \`povmind:security\`, \`povmind:repo\`, \`povmind:snapshots\`.\n\n## Prochaine architecture\n\nCréer un registre de vaults :\n\n\`\`\`txt\npovmind:vaults:index\npovmind:vault:{vaultId}:notes\npovmind:vault:{vaultId}:security\npovmind:vault:{vaultId}:repo\npovmind:vault:{vaultId}:snapshots\npovmind:vault:{vaultId}:layout\n\`\`\`\n\n## Ordre d'implémentation recommandé\n\n1. Ajouter le \`Vault Registry\` et une migration du vault actuel.\n2. Ajouter le sélecteur de vault : créer, ouvrir, renommer, exporter.\n3. Isoler les tokens et snapshots par \`vaultId\`.\n4. Ajouter le chiffrement AES-GCM optionnel par vault.\n5. Ajouter les tokens par assistant avec scopes et révocation.\n6. Ajouter un backend Cloud Run sécurisé pour sync multi-appareil.\n7. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient nécessaire.\n\n## Décision produit\n\nLe coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.\n\nVoir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
+      body: `# PovMind - Auth et multivault\n\nÉtat produit au 2026-04-27 : l'auth assistant est fonctionnelle et le multivault local-first est amorcé. L'auth utilisateur et la sync cloud restent à construire.\n\n## Déjà en place\n\n- \`vaultId\` cryptographique par vault.\n- Registre local \`povmind:vaults:index\` avec vault actif.\n- Stockage isolé par \`povmind:vault:{vaultId}:...\` pour notes, sécurité, repo, snapshots, layout et graphe.\n- Sélecteur de vault dans la sidebar : ouvrir, créer, renommer.\n- Migration douce du vault historique vers le premier vault local.\n- Token assistant \`povm_...\` généré côté navigateur.\n- Stockage uniquement de \`SHA-256(vaultId:token)\`.\n- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.\n- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.\n- Snapshots reliés au vault, au commit repo et au \`repoTreeHash\`.\n\n## Pas encore en place\n\n- Pas de login utilisateur.\n- Pas de backend de comptes.\n- Pas de stockage cloud par vault.\n- Pas de chiffrement at-rest des notes dans \`localStorage\`.\n- Pas encore de token par assistant, de révocation fine ou de journal d'accès.\n- Pas encore de suppression/restauration de vault avec confirmation forte.\n\n## Architecture actuelle\n\n\`\`\`txt\npovmind:vaults:index\npovmind:vaults:active\npovmind:vault:{vaultId}:notes\npovmind:vault:{vaultId}:security\npovmind:vault:{vaultId}:repo\npovmind:vault:{vaultId}:snapshots\npovmind:vault:{vaultId}:layout\npovmind:vault:{vaultId}:graph-layout\npovmind:vault:{vaultId}:starred\n\`\`\`\n\n## Ordre d'implémentation recommandé\n\n1. Ajouter import “comme nouveau vault”.\n2. Ajouter export complet du registre de vaults.\n3. Ajouter le chiffrement AES-GCM optionnel par vault.\n4. Ajouter les tokens par assistant avec scopes et révocation.\n5. Ajouter un backend Cloud Run sécurisé pour sync multi-appareil.\n6. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient nécessaire.\n\n## Décision produit\n\nLe coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.\n\nVoir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
     },
     {
       title: "PovMind - Snapshots du vault",
@@ -650,7 +785,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Backlog contexte",
       folder: "Documentation PovMind",
-      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## À prioriser\n\n- [ ] Implémenter le Vault Registry décrit dans [[PovMind - Auth et multivault]].\n- [ ] Ajouter un sélecteur de vault : créer, ouvrir, renommer, exporter.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un connecteur Cloud Run sécurisé pour synchroniser plusieurs appareils.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
+      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n\n## À prioriser\n\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un connecteur Cloud Run sécurisé pour synchroniser plusieurs appareils.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
     },
   ];
 }
@@ -673,7 +808,7 @@ function ensureDocumentationVault(options = {}) {
 
   if (created.length) {
     state.notes = [...created, ...state.notes];
-    localStorage.setItem(DOC_VAULT_KEY, nowIso());
+    localStorage.setItem(vaultStorageKey("doc-vault"), nowIso());
     persistNow(false);
   }
 
@@ -691,7 +826,7 @@ function ensureDocumentationVault(options = {}) {
 }
 
 function loadStore() {
-  const raw = readStoredValue(STORAGE_KEY, LEGACY_STORAGE_KEY);
+  const raw = readVaultStoredValue("notes", STORAGE_KEY, LEGACY_STORAGE_KEY);
   if (!raw) {
     state.notes = seedNotes();
     state.activeId = state.notes[0]?.id || null;
@@ -741,7 +876,7 @@ function cleanNote(note) {
 
 function persistNow(showSaved = true) {
   localStorage.setItem(
-    STORAGE_KEY,
+    vaultStorageKey("notes"),
     JSON.stringify({
       version: 1,
       activeId: state.activeId,
@@ -752,6 +887,7 @@ function persistNow(showSaved = true) {
   if (showSaved) {
     els.savedStatus.textContent = "Sauvegardé";
   }
+  touchActiveVault();
 }
 
 function queueSave() {
@@ -892,6 +1028,15 @@ function filteredNotes() {
       return queryOk && tagOk && folderOk;
     })
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function renderVaultSwitcher() {
+  const active = activeVaultRecord();
+  els.vaultSelect.innerHTML = vaultRegistry.vaults
+    .map((vault) => `<option value="${attr(vault.id)}">${escapeHtml(vault.name)}</option>`)
+    .join("");
+  els.vaultSelect.value = activeVaultId;
+  els.vaultRegistryMeta.textContent = `${vaultRegistry.vaults.length} vault(s) local-first · ${active ? shortHash(active.id) : "—"}`;
 }
 
 function renderVaultStats() {
@@ -1377,7 +1522,7 @@ function clampGraphPosition(position) {
 
 function loadGraphPositions() {
   try {
-    const raw = readStoredValue(GRAPH_LAYOUT_KEY, LEGACY_GRAPH_LAYOUT_KEY);
+    const raw = readVaultStoredValue("graph-layout", GRAPH_LAYOUT_KEY, LEGACY_GRAPH_LAYOUT_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const positions = parsed?.positions && typeof parsed.positions === "object" ? parsed.positions : parsed;
@@ -1395,7 +1540,7 @@ function loadGraphPositions() {
 
 function persistGraphPositions() {
   localStorage.setItem(
-    GRAPH_LAYOUT_KEY,
+    vaultStorageKey("graph-layout"),
     JSON.stringify({
       version: 1,
       updatedAt: nowIso(),
@@ -1658,6 +1803,7 @@ function renderGraph() {
   els.graph.innerHTML = `${lineMarkup}${nodeMarkup}${limitCaption}${hint}`;
 }
 function renderAll() {
+  renderVaultSwitcher();
   renderSecurityPanel();
   renderSnapshotsPanel();
   renderRepoPanel();
@@ -2665,6 +2811,7 @@ function buildSnapshotContent(createdAt) {
     app: APP_NAME,
     storageVersion: 1,
     vaultId: state.security.vaultId,
+    vaultName: activeVaultRecord()?.name || "PovMind",
     activeId: state.activeId,
     activeTitle: active?.title || null,
     view: state.view,
@@ -2765,6 +2912,7 @@ function exportVault() {
   const payload = {
     version: 1,
     exportedAt: nowIso(),
+    vault: activeVaultRecord(),
     activeId: state.activeId,
     starredIds: [...state.starredIds],
     security: securityExportPayload(),
@@ -2878,7 +3026,7 @@ async function importVault(file) {
       state.graphPositions = {};
       state.graphRuntimePositions = {};
       if (parsed.security) {
-        state.security = cleanSecurityState(parsed.security);
+        state.security = cleanSecurityState(parsed.security, activeVaultId);
         state.assistantToken = "";
         persistSecurityState();
       }
@@ -2930,11 +3078,79 @@ async function importVault(file) {
   }
 }
 
+function loadActiveVaultState() {
+  state.search = "";
+  state.tagFilter = null;
+  state.folderFilter = null;
+  state.view = readVaultStoredValue("view", VIEW_KEY, LEGACY_VIEW_KEY) || "split";
+  state.starredIds = loadStarredIds();
+  state.layout = loadLayoutSettings();
+  state.graphPositions = loadGraphPositions();
+  state.graphRuntimePositions = {};
+  state.graphDragging = null;
+  state.graphClickSuppressed = false;
+  state.security = loadSecurityState();
+  state.assistantToken = "";
+  state.snapshots = loadSnapshots();
+  state.repo = loadRepoState();
+  els.searchInput.value = "";
+  loadStore();
+  ensureDocumentationVault({ silent: true });
+  applyLayoutSettings();
+}
+
+function switchVault(vaultId) {
+  if (!vaultRegistry.vaults.some((vault) => vault.id === vaultId) || vaultId === activeVaultId) return;
+  persistNow(false);
+  activeVaultId = vaultId;
+  vaultRegistry.activeId = vaultId;
+  persistVaultRegistry();
+  loadActiveVaultState();
+  renderAll();
+  toast(`Vault ouvert : ${activeVaultRecord()?.name || "PovMind"}.`);
+}
+
+function createVault() {
+  const rawName = prompt("Nom du nouveau vault PovMind ?", `Vault ${vaultRegistry.vaults.length + 1}`);
+  if (rawName === null) return;
+  const name = cleanVaultName(rawName, `Vault ${vaultRegistry.vaults.length + 1}`);
+  persistNow(false);
+  const id = createVaultId();
+  const createdAt = nowIso();
+  vaultRegistry.vaults.unshift({
+    id,
+    name,
+    createdAt,
+    updatedAt: createdAt,
+    noteCount: 0,
+    tokenSealed: false,
+  });
+  activeVaultId = id;
+  vaultRegistry.activeId = id;
+  persistVaultRegistry();
+  loadActiveVaultState();
+  renderAll();
+  toast(`Vault créé : ${name}.`);
+}
+
+function renameActiveVault() {
+  const current = activeVaultRecord();
+  if (!current) return;
+  const rawName = prompt("Renommer le vault actif", current.name);
+  if (rawName === null) return;
+  const name = cleanVaultName(rawName, current.name);
+  current.name = name;
+  current.updatedAt = nowIso();
+  persistVaultRegistry();
+  renderVaultSwitcher();
+  toast(`Vault renommé : ${name}.`);
+}
+
 function cycleView() {
   const order = ["split", "edit", "preview"];
   const current = order.indexOf(state.view);
   state.view = order[(current + 1) % order.length];
-  localStorage.setItem(VIEW_KEY, state.view);
+  localStorage.setItem(vaultStorageKey("view"), state.view);
   renderActiveNote();
 }
 
@@ -3159,6 +3375,16 @@ function commandDefinitions(query = "") {
       run: () => ensureDocumentationVault({ select: true }),
     },
     {
+      title: "Nouveau vault",
+      detail: "Créer un vault local isolé",
+      run: createVault,
+    },
+    {
+      title: "Renommer le vault",
+      detail: activeVaultRecord()?.name || "Vault actif",
+      run: renameActiveVault,
+    },
+    {
       title: "Choisir un template",
       detail: "Projet, réunion, recherche ou journal",
       run: openTemplatePicker,
@@ -3380,6 +3606,9 @@ function handleFolderInput() {
 
 function bindEvents() {
   els.newNoteBtn.addEventListener("click", () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"));
+  els.vaultSelect.addEventListener("change", () => switchVault(els.vaultSelect.value));
+  els.newVaultBtn.addEventListener("click", createVault);
+  els.renameVaultBtn.addEventListener("click", renameActiveVault);
   els.dailyNoteBtn.addEventListener("click", createDailyNote);
   els.docVaultBtn.addEventListener("click", () => ensureDocumentationVault({ select: true }));
   els.commandPaletteBtn.addEventListener("click", () => openCommandPalette());
@@ -3637,9 +3866,7 @@ function registerServiceWorker() {
   });
 }
 
-applyLayoutSettings();
-loadStore();
-ensureDocumentationVault({ silent: true });
+loadActiveVaultState();
 bindEvents();
 renderAll();
 registerServiceWorker();
