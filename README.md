@@ -14,7 +14,9 @@ Un vault PovMind doit relier trois choses :
 
 L'objectif est qu'un assistant travaille toujours avec un contexte vérifiable : notes + snapshot + repo lié, protégés par un token assistant.
 
-Depuis `0.5.0`, PovMind gère aussi un registre local de vaults : chaque vault isole ses notes, tokens, snapshots, repo, layout et graphe sous une clé `povmind:vault:{vaultId}:...`.
+Depuis `0.5.0`, PovMind gère aussi un registre local de vaults : chaque vault isole ses notes, tokens, snapshots, repo, GitHub sync, layout et graphe sous une clé `povmind:vault:{vaultId}:...`.
+
+Depuis `0.6.0`, un vault peut préparer un contexte GitHub versionnable : `AGENTS.md` + dossier `.povmind/`, avec manifest, notes Markdown, graphe, snapshot, politique MCP et repo manifest.
 
 ## Lancer l'app
 
@@ -44,6 +46,25 @@ npm run deploy:gcp
 Cette commande synchronise les versions, lance les checks, déploie sur Cloud Run puis vérifie que la version en ligne correspond au local.
 
 Voir `DEPLOYMENT.md` pour les détails.
+
+### Connecteur GitHub Cloud Run
+
+Le panneau “GitHub sync” peut exporter localement le contexte `.povmind/`. Pour activer Push/Pull directement depuis Cloud Run, configure un OAuth App GitHub puis ajoute ces variables d'environnement au service :
+
+```bash
+GITHUB_CLIENT_ID="..."
+GITHUB_CLIENT_SECRET="..."
+GITHUB_TOKEN_ENCRYPTION_KEY="long-secret-random"
+PUBLIC_BASE_URL="https://povmind-472136847189.europe-west1.run.app"
+```
+
+Le callback OAuth doit pointer vers :
+
+```txt
+https://povmind-472136847189.europe-west1.run.app/auth/github/callback
+```
+
+Le token GitHub n'est jamais exposé au JavaScript : Cloud Run le chiffre et le garde dans un cookie HttpOnly. Les endpoints disponibles sont `/api/github/status`, `/auth/github/start`, `/api/github/push-context` et `/api/github/pull-context`.
 
 ## Repo GitHub
 
@@ -78,6 +99,7 @@ git push -u origin main
 - Registre multi-vault local-first avec création, ouverture et renommage.
 - Snapshots versionnés du vault avec hash global SHA-256.
 - Connexion à un repo de code via manifeste read-only.
+- Synchronisation GitHub du contexte `.povmind/` avec export local, import, OAuth Cloud Run, push et pull.
 - Backlinks de la note active.
 - Liens sortants de la note active.
 - Graphe SVG des connexions avec nœuds déplaçables.
@@ -137,6 +159,29 @@ Utilisation recommandée :
 
 Les liens wiki vers des notes existantes sont convertis en liens Markdown classiques dans l'export. Les liens restants pointent vers des notes manquantes ou externes.
 
+## GitHub sync
+
+Le bouton “Export .povmind” génère un zip prêt à déposer dans un repo GitHub :
+
+```txt
+AGENTS.md
+.povmind/
+  manifest.json
+  README.md
+  vaults/{vaultId}/
+    manifest.json
+    INDEX.md
+    graph.json
+    mcp-policy.json
+    repo-manifest.json
+    snapshots/latest.json
+    notes/*.md
+```
+
+`AGENTS.md` devient le contrat de contexte pour Codex : lire `.povmind/manifest.json`, le manifest du vault actif, les notes pertinentes, puis le dernier snapshot si une décision doit citer un état figé.
+
+Le Push/Pull GitHub passe par Cloud Run. Le navigateur envoie uniquement les fichiers de contexte; le token OAuth GitHub reste côté serveur dans un cookie HttpOnly chiffré. Le token assistant `POVMIND_VAULT_TOKEN` reste séparé et n'est pas utilisé pour GitHub.
+
 ## Stockage
 
 Les notes sont stockées dans `localStorage` du navigateur. Pour sauvegarder hors navigateur, utilise “Exporter le carnet” ou “Exporter Codex KB”.
@@ -152,6 +197,7 @@ povmind:vault:{vaultId}:notes
 povmind:vault:{vaultId}:security
 povmind:vault:{vaultId}:repo
 povmind:vault:{vaultId}:snapshots
+povmind:vault:{vaultId}:github-sync
 ```
 
 Les anciennes clés mono-vault sont migrées doucement vers le premier vault local.
@@ -191,12 +237,13 @@ Le journal reste la mémoire narrative. Le snapshot est la preuve d'état exacte
 
 ## Limites du MVP
 
-- Pas de synchronisation cloud directe.
+- Pas encore de synchronisation cloud multi-appareil avec comptes et équipes.
+- Push/Pull GitHub exige encore la configuration des secrets OAuth sur Cloud Run.
 - Pas de vrai système de fichiers local natif.
 - Pas encore de suppression/restauration forte de vault.
 - Markdown volontairement simple, sans toutes les extensions avancées.
 - Graphe simplifié : les positions déplacées sont mémorisées localement, sans moteur physique complet.
-- Intégration repo par manifeste statique : elle ne clone pas, ne commit pas et ne pousse pas encore vers GitHub/GitLab.
+- Intégration repo par manifeste statique : elle ne clone pas le repo source et ne modifie que le dossier `.povmind/` lors d'une sync GitHub.
 
 ## Idées d'amélioration
 

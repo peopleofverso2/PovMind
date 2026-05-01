@@ -4,6 +4,7 @@
 .gcloudignore
 .playwright-cli
 output
+vaults
 node_modules
 npm-debug.log
 *.zip

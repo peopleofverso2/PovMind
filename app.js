@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.6.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -9,6 +9,7 @@ const SECURITY_KEY = "povmind:security";
 const DOC_VAULT_KEY = "povmind:doc-vault:v1";
 const SNAPSHOTS_KEY = "povmind:snapshots";
 const REPO_KEY = "povmind:repo";
+const GITHUB_SYNC_KEY = "povmind:github-sync";
 const VAULTS_INDEX_KEY = "povmind:vaults:index";
 const ACTIVE_VAULT_KEY = "povmind:vaults:active";
 const LEGACY_STORAGE_KEY = "graphnotes:v1";
@@ -132,6 +133,17 @@ const els = {
   codeRepoNoteBtn: document.getElementById("codeRepoNoteBtn"),
   repoManifestInput: document.getElementById("repoManifestInput"),
   repoFilesList: document.getElementById("repoFilesList"),
+  githubStatus: document.getElementById("githubStatus"),
+  githubRepoInput: document.getElementById("githubRepoInput"),
+  githubBranchInput: document.getElementById("githubBranchInput"),
+  githubPathInput: document.getElementById("githubPathInput"),
+  githubMetaLine: document.getElementById("githubMetaLine"),
+  githubConnectBtn: document.getElementById("githubConnectBtn"),
+  githubPushBtn: document.getElementById("githubPushBtn"),
+  githubPullBtn: document.getElementById("githubPullBtn"),
+  exportGithubContextBtn: document.getElementById("exportGithubContextBtn"),
+  importGithubContextBtn: document.getElementById("importGithubContextBtn"),
+  githubContextInput: document.getElementById("githubContextInput"),
 };
 
 let vaultRegistry = initializeVaultRegistry();
@@ -159,6 +171,7 @@ const state = {
   assistantToken: "",
   snapshots: loadSnapshots(),
   repo: loadRepoState(),
+  githubSync: loadGithubSyncState(),
 };
 
 function uid() {
@@ -237,6 +250,7 @@ function migrateLegacyVaultToNamespaced(vaultId, security) {
     ["doc-vault", localStorage.getItem(DOC_VAULT_KEY)],
     ["snapshots", localStorage.getItem(SNAPSHOTS_KEY)],
     ["repo", localStorage.getItem(REPO_KEY)],
+    ["github-sync", localStorage.getItem(GITHUB_SYNC_KEY)],
   ];
 
   for (const [kind, raw] of pairs) {
@@ -521,6 +535,113 @@ function repoExportPayload(includeFiles = true) {
   };
 }
 
+function cleanGithubRepoFullName(value) {
+  const withoutUrl = String(value || "")
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/\.git$/i, "")
+    .split(/[?#]/)[0]
+    .replace(/^\/+|\/+$/g, "");
+  const parts = withoutUrl.split("/").filter(Boolean).slice(0, 2);
+  if (parts.length !== 2) return "";
+  return parts
+    .map((part) => part.replace(/[^a-z0-9_.-]/gi, "").slice(0, 64))
+    .filter(Boolean)
+    .join("/");
+}
+
+function cleanGithubBranch(value) {
+  return String(value || "main")
+    .trim()
+    .replace(/[^a-z0-9_./-]/gi, "")
+    .replace(/^\/+|\/+$/g, "")
+    .slice(0, 120) || "main";
+}
+
+function cleanGithubBasePath(value) {
+  const clean = String(value || ".povmind")
+    .trim()
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/")
+    .slice(0, 160);
+  return clean || ".povmind";
+}
+
+function cleanGithubSyncState(value) {
+  const fallback = {
+    format: "povmind-github-sync",
+    version: 1,
+    provider: "github",
+    repoFullName: "",
+    branch: "main",
+    basePath: ".povmind",
+    lastSyncedAt: "",
+    lastCommit: "",
+    lastDirection: "",
+    connector: {
+      configured: false,
+      authenticated: false,
+      tokenStorage: "server-http-only",
+    },
+  };
+
+  if (!value || typeof value !== "object") return fallback;
+  return {
+    ...fallback,
+    ...value,
+    format: "povmind-github-sync",
+    version: Number(value.version || 1),
+    provider: "github",
+    repoFullName: cleanGithubRepoFullName(value.repoFullName || value.repo || value.remote),
+    branch: cleanGithubBranch(value.branch),
+    basePath: cleanGithubBasePath(value.basePath || value.path),
+    lastSyncedAt: String(value.lastSyncedAt || ""),
+    lastCommit: String(value.lastCommit || ""),
+    lastDirection: String(value.lastDirection || ""),
+    connector: {
+      ...fallback.connector,
+      ...(value.connector && typeof value.connector === "object" ? value.connector : {}),
+    },
+  };
+}
+
+function loadGithubSyncState() {
+  try {
+    return cleanGithubSyncState(JSON.parse(localStorage.getItem(vaultStorageKey("github-sync")) || "null"));
+  } catch {
+    return cleanGithubSyncState(null);
+  }
+}
+
+function persistGithubSyncState() {
+  state.githubSync = cleanGithubSyncState(state.githubSync);
+  localStorage.setItem(vaultStorageKey("github-sync"), JSON.stringify(state.githubSync, null, 2));
+  touchActiveVault();
+}
+
+function githubSyncExportPayload() {
+  const sync = cleanGithubSyncState(state.githubSync);
+  return {
+    format: sync.format,
+    version: sync.version,
+    provider: sync.provider,
+    repoFullName: sync.repoFullName,
+    branch: sync.branch,
+    basePath: sync.basePath,
+    lastSyncedAt: sync.lastSyncedAt,
+    lastCommit: sync.lastCommit,
+    lastDirection: sync.lastDirection,
+    connector: {
+      configured: Boolean(sync.connector.configured),
+      authenticated: Boolean(sync.connector.authenticated),
+      tokenStorage: "server-http-only",
+    },
+  };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -740,12 +861,12 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Index",
       folder: "Documentation PovMind",
-      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
     },
     {
       title: "PovMind - Architecture",
       folder: "Documentation PovMind",
-      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS/JavaScript vanilla pensée comme un vault Markdown local.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`app.js\` : modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:v1\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots et accès assistant utilisent des clés \`povmind:*\` dédiées.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]] et [[PovMind - GitHub repo]]. #povmind #architecture`,
+      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS/JavaScript vanilla pensée comme un vault Markdown local.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`app.js\` : modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture`,
     },
     {
       title: "PovMind - Sécurité et tokens",
@@ -755,7 +876,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Auth et multivault",
       folder: "Documentation PovMind",
-      body: `# PovMind - Auth et multivault\n\nÉtat produit au 2026-04-27 : l'auth assistant est fonctionnelle et le multivault local-first est amorcé. L'auth utilisateur et la sync cloud restent à construire.\n\n## Déjà en place\n\n- \`vaultId\` cryptographique par vault.\n- Registre local \`povmind:vaults:index\` avec vault actif.\n- Stockage isolé par \`povmind:vault:{vaultId}:...\` pour notes, sécurité, repo, snapshots, layout et graphe.\n- Sélecteur de vault dans la sidebar : ouvrir, créer, renommer.\n- Migration douce du vault historique vers le premier vault local.\n- Token assistant \`povm_...\` généré côté navigateur.\n- Stockage uniquement de \`SHA-256(vaultId:token)\`.\n- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.\n- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.\n- Snapshots reliés au vault, au commit repo et au \`repoTreeHash\`.\n\n## Pas encore en place\n\n- Pas de login utilisateur.\n- Pas de backend de comptes.\n- Pas de stockage cloud par vault.\n- Pas de chiffrement at-rest des notes dans \`localStorage\`.\n- Pas encore de token par assistant, de révocation fine ou de journal d'accès.\n- Pas encore de suppression/restauration de vault avec confirmation forte.\n\n## Architecture actuelle\n\n\`\`\`txt\npovmind:vaults:index\npovmind:vaults:active\npovmind:vault:{vaultId}:notes\npovmind:vault:{vaultId}:security\npovmind:vault:{vaultId}:repo\npovmind:vault:{vaultId}:snapshots\npovmind:vault:{vaultId}:layout\npovmind:vault:{vaultId}:graph-layout\npovmind:vault:{vaultId}:starred\n\`\`\`\n\n## Ordre d'implémentation recommandé\n\n1. Ajouter import “comme nouveau vault”.\n2. Ajouter export complet du registre de vaults.\n3. Ajouter le chiffrement AES-GCM optionnel par vault.\n4. Ajouter les tokens par assistant avec scopes et révocation.\n5. Ajouter un backend Cloud Run sécurisé pour sync multi-appareil.\n6. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient nécessaire.\n\n## Décision produit\n\nLe coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.\n\nVoir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
+      body: `# PovMind - Auth et multivault\n\nÉtat produit au 2026-05-01 : l'auth assistant est fonctionnelle, le multivault local-first est en place et la sync GitHub est amorcée via Cloud Run/OAuth.\n\n## Déjà en place\n\n- \`vaultId\` cryptographique par vault.\n- Registre local \`povmind:vaults:index\` avec vault actif.\n- Stockage isolé par \`povmind:vault:{vaultId}:...\` pour notes, sécurité, repo, snapshots, GitHub sync, layout et graphe.\n- Sélecteur de vault dans la sidebar : ouvrir, créer, renommer.\n- Migration douce du vault historique vers le premier vault local.\n- Token assistant \`povm_...\` généré côté navigateur.\n- Stockage uniquement de \`SHA-256(vaultId:token)\`.\n- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.\n- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.\n- Snapshots reliés au vault, au commit repo, au \`repoTreeHash\` et à la cible GitHub.\n- Export \`.povmind/\` + \`AGENTS.md\` pour versionner le contexte dans un repo.\n\n## Pas encore en place\n\n- Pas de login utilisateur complet.\n- Pas de backend de comptes et d'équipes.\n- Pas de chiffrement at-rest des notes dans \`localStorage\`.\n- Pas encore de token par assistant, de révocation fine ou de journal d'accès.\n- Pas encore de suppression/restauration de vault avec confirmation forte.\n- Le connecteur GitHub doit encore être configuré en production avec les secrets OAuth.\n\n## Architecture actuelle\n\n\`\`\`txt\npovmind:vaults:index\npovmind:vaults:active\npovmind:vault:{vaultId}:notes\npovmind:vault:{vaultId}:security\npovmind:vault:{vaultId}:repo\npovmind:vault:{vaultId}:snapshots\npovmind:vault:{vaultId}:github-sync\npovmind:vault:{vaultId}:layout\npovmind:vault:{vaultId}:graph-layout\npovmind:vault:{vaultId}:starred\n\`\`\`\n\n## Ordre d'implémentation recommandé\n\n1. Ajouter import “comme nouveau vault”.\n2. Ajouter export complet du registre de vaults.\n3. Ajouter le chiffrement AES-GCM optionnel par vault.\n4. Ajouter les tokens par assistant avec scopes et révocation.\n5. Durcir le connecteur Cloud Run GitHub avec audit log et révocation.\n6. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient multi-appareil.\n\n## Décision produit\n\nLe coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.\n\nVoir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
     },
     {
       title: "PovMind - Snapshots du vault",
@@ -770,7 +891,12 @@ function documentationVaultNotes() {
     {
       title: "PovMind - GitHub repo",
       folder: "Documentation PovMind",
-      body: `# PovMind - GitHub repo\n\nGitHub est le registre exécutable de PovMind : code, revues, CI, historique et liens vers les snapshots du vault.\n\n## Contrat\n\n- \`main\` doit rester déployable.\n- Chaque changement durable doit passer par \`npm run check\`.\n- La CI GitHub vérifie la synchronisation de version, la syntaxe et le manifest repo.\n- Le repo ne doit jamais contenir \`.env\`, tokens, exports MCP, zips ou dossiers \`output/\`.\n\n## Fichiers GitHub\n\n- \`.gitignore\` : exclusions locales et secrets.\n- \`.github/workflows/ci.yml\` : contrôle continu.\n- \`SECURITY.md\` : modèle de sécurité actuel.\n\n## Lien avec le vault\n\nUn snapshot doit pouvoir citer un commit Git et un \`repoTreeHash\`. L'assistant peut ensuite lire les notes, le manifest repo et les fichiers exportés via MCP.\n\nVoir [[PovMind - Code repo]] et [[PovMind - Snapshots du vault]]. #github #repo #ci`,
+      body: `# PovMind - GitHub repo\n\nGitHub est le registre exécutable de PovMind : code, revues, CI, historique et liens vers les snapshots du vault.\n\n## Contrat\n\n- \`main\` doit rester déployable.\n- Chaque changement durable doit passer par \`npm run check\`.\n- La CI GitHub vérifie la synchronisation de version, la syntaxe et le manifest repo.\n- Le repo ne doit jamais contenir \`.env\`, tokens, exports MCP, zips ou dossiers \`output/\`.\n\n## Fichiers GitHub\n\n- \`.gitignore\` : exclusions locales et secrets.\n- \`.github/workflows/ci.yml\` : contrôle continu.\n- \`SECURITY.md\` : modèle de sécurité actuel.\n- \`.povmind/\` : contexte versionnable du vault quand la sync est activée.\n- \`AGENTS.md\` : consignes racine pour l'assistant de code.\n\n## Lien avec le vault\n\nUn snapshot doit pouvoir citer un commit Git et un \`repoTreeHash\`. L'assistant peut ensuite lire les notes, le manifest repo et les fichiers exportés via MCP.\n\nVoir [[PovMind - Code repo]], [[PovMind - GitHub sync]] et [[PovMind - Snapshots du vault]]. #github #repo #ci`,
+    },
+    {
+      title: "PovMind - GitHub sync",
+      folder: "Documentation PovMind",
+      body: `# PovMind - GitHub sync\n\nLa synchronisation GitHub fait du vault un contexte versionnable au même endroit que le code.\n\n## Format versionné\n\nPovMind exporte un dossier \`.povmind/\` et un \`AGENTS.md\` racine :\n\n\`\`\`txt\nAGENTS.md\n.povmind/\n  manifest.json\n  README.md\n  vaults/{vaultId}/\n    manifest.json\n    INDEX.md\n    graph.json\n    mcp-policy.json\n    repo-manifest.json\n    snapshots/latest.json\n    notes/*.md\n\`\`\`\n\n## Principe\n\n- \`AGENTS.md\` indique à Codex quoi lire avant de coder.\n- \`.povmind/manifest.json\` décrit le vault actif, la cible GitHub, le repo lié et le dernier snapshot.\n- \`snapshots/latest.json\` fige notes, graphe, repo et politique token avec un hash global.\n- \`mcp-policy.json\` ne contient pas le secret complet, seulement la politique d'accès.\n\n## Connecteur Cloud Run\n\nLe navigateur ne stocke pas de token GitHub longue durée. Le flux attendu est :\n\n1. OAuth GitHub depuis Cloud Run.\n2. Token chiffré côté serveur dans un cookie HttpOnly.\n3. Push/Pull du dossier \`.povmind/\` via les endpoints Cloud Run.\n4. Le token assistant \`POVMIND_VAULT_TOKEN\` reste séparé du token GitHub.\n\n## Endpoints prévus\n\n- \`GET /api/github/status\`\n- \`GET /auth/github/start\`\n- \`GET /auth/github/callback\`\n- \`POST /api/github/push-context\`\n- \`POST /api/github/pull-context\`\n\n## Décision produit\n\nGitHub versionne le contexte; MCP autorise l'accès assistant; les snapshots prouvent l'état. Ces trois couches ne doivent pas partager le même secret.\n\nVoir [[PovMind - GitHub repo]], [[PovMind - MCP assistant]] et [[PovMind - Snapshots du vault]]. #github #sync #contexte`,
     },
     {
       title: "PovMind - MCP assistant",
@@ -780,12 +906,12 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Déploiement Cloud Run",
       folder: "Documentation PovMind",
-      body: `# PovMind - Déploiement Cloud Run\n\nPovMind est déployé sur Cloud Run via un conteneur Node statique.\n\n## URL actuelle\n\nhttps://povmind-472136847189.europe-west1.run.app\n\n## Commande de déploiement\n\n\`\`\`bash\ngcloud run deploy povmind \\\n  --source . \\\n  --project campaign-truth-prod \\\n  --region europe-west1 \\\n  --allow-unauthenticated\n\`\`\`\n\n## Points de production\n\n- \`/healthz\` pour la supervision.\n- \`/version\` pour diagnostiquer la révision.\n- CSP, anti-framing, permissions minimales et referrer policy.\n- PWA manifest, service worker, robots et sitemap.\n\nVoir [[PovMind - Backlog contexte]]. #povmind #cloudrun`,
+      body: `# PovMind - Déploiement Cloud Run\n\nPovMind est déployé sur Cloud Run via un conteneur Node statique.\n\n## URL actuelle\n\nhttps://povmind-472136847189.europe-west1.run.app\n\n## Commande de déploiement\n\n\`\`\`bash\ngcloud run deploy povmind \\\n  --source . \\\n  --project campaign-truth-prod \\\n  --region europe-west1 \\\n  --allow-unauthenticated\n\`\`\`\n\n## Points de production\n\n- \`/healthz\` pour la supervision.\n- \`/version\` pour diagnostiquer la révision.\n- CSP, anti-framing, permissions minimales et referrer policy.\n- PWA manifest, service worker, robots et sitemap.\n- Connecteur GitHub OAuth pour pousser/tirer le contexte \`.povmind/\` sans stocker de token longue durée dans le navigateur.\n\n## Secrets GitHub requis\n\n- \`GITHUB_CLIENT_ID\`\n- \`GITHUB_CLIENT_SECRET\`\n- \`GITHUB_TOKEN_ENCRYPTION_KEY\`\n- \`PUBLIC_BASE_URL\`\n\nVoir [[PovMind - GitHub sync]] et [[PovMind - Backlog contexte]]. #povmind #cloudrun`,
     },
     {
       title: "PovMind - Backlog contexte",
       folder: "Documentation PovMind",
-      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n\n## À prioriser\n\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un connecteur Cloud Run sécurisé pour synchroniser plusieurs appareils.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
+      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n- [x] Ajouter l'export \`.povmind/\` + \`AGENTS.md\` décrit dans [[PovMind - GitHub sync]].\n- [x] Ajouter le scaffold Cloud Run OAuth GitHub sans token longue durée dans le navigateur.\n\n## À prioriser\n\n- [ ] Configurer les secrets OAuth GitHub sur Cloud Run.\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un audit log du connecteur GitHub.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
     },
   ];
 }
@@ -794,8 +920,17 @@ function ensureDocumentationVault(options = {}) {
   const { select = false, silent = false } = options;
   const createdAt = nowIso();
   const created = [];
+  const updated = [];
   for (const doc of documentationVaultNotes()) {
-    if (findNoteByTitle(doc.title)) continue;
+    const existing = findNoteByTitle(doc.title);
+    if (existing) {
+      if (existing.folder === doc.folder && existing.body !== doc.body) {
+        existing.body = doc.body;
+        existing.updatedAt = createdAt;
+        updated.push(existing);
+      }
+      continue;
+    }
     created.push({
       id: uid(),
       title: doc.title,
@@ -806,7 +941,7 @@ function ensureDocumentationVault(options = {}) {
     });
   }
 
-  if (created.length) {
+  if (created.length || updated.length) {
     state.notes = [...created, ...state.notes];
     localStorage.setItem(vaultStorageKey("doc-vault"), nowIso());
     persistNow(false);
@@ -821,8 +956,8 @@ function ensureDocumentationVault(options = {}) {
     persistNow(false);
   }
 
-  if (created.length || select) renderAll();
-  if (!silent) toast(created.length ? "Vault documentation PovMind créé." : "Vault documentation PovMind ouvert.");
+  if (created.length || updated.length || select) renderAll();
+  if (!silent) toast(created.length || updated.length ? "Vault documentation PovMind mis à jour." : "Vault documentation PovMind ouvert.");
 }
 
 function loadStore() {
@@ -1137,6 +1272,28 @@ function renderRepoPanel() {
         <span>${escapeHtml(file.language || "texte")} · ${Number(file.bytes || 0)} o · ${escapeHtml(shortHash(file.hash))}</span>
       </div>`)
     .join("");
+}
+
+function renderGithubPanel() {
+  if (!els.githubStatus) return;
+  const sync = cleanGithubSyncState(state.githubSync);
+  const connected = Boolean(sync.connector.configured && sync.connector.authenticated);
+  const configured = Boolean(sync.connector.configured);
+  els.githubStatus.textContent = connected ? "Connecté" : configured ? "OAuth prêt" : "Local";
+  els.githubRepoInput.value = sync.repoFullName;
+  els.githubBranchInput.value = sync.branch;
+  els.githubPathInput.value = sync.basePath;
+  els.githubPushBtn.disabled = !sync.repoFullName || !configured;
+  els.githubPullBtn.disabled = !sync.repoFullName || !configured;
+
+  const last = sync.lastSyncedAt ? ` · sync ${formatDate(sync.lastSyncedAt)}` : "";
+  const commit = sync.lastCommit ? ` · ${sync.lastCommit.slice(0, 8)}` : "";
+  const mode = connected
+    ? "Token GitHub gardé côté serveur."
+    : configured
+      ? "OAuth configuré. Connecte ton compte pour pousser/tirer."
+      : "Export local prêt. Configure Cloud Run pour le push/pull.";
+  els.githubMetaLine.textContent = `${sync.repoFullName || "Repo GitHub non renseigné"} · ${sync.branch} · ${sync.basePath}${commit}${last}. ${mode}`;
 }
 
 function renderNotesList() {
@@ -1807,6 +1964,7 @@ function renderAll() {
   renderSecurityPanel();
   renderSnapshotsPanel();
   renderRepoPanel();
+  renderGithubPanel();
   renderVaultStats();
   renderTagFilters();
   renderFolderFilters();
@@ -2017,6 +2175,49 @@ function createZipArchive(files) {
   setUint16(end, 20, 0);
 
   return concatUint8([...localParts, ...centralParts, end]);
+}
+
+function getUint16(buffer, offset) {
+  return buffer[offset] | (buffer[offset + 1] << 8);
+}
+
+function getUint32(buffer, offset) {
+  return (buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24)) >>> 0;
+}
+
+async function readStoredZipEntries(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const decoder = new TextDecoder();
+  const entries = {};
+  let offset = 0;
+
+  while (offset + 30 <= bytes.length) {
+    const signature = getUint32(bytes, offset);
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+
+    const flags = getUint16(bytes, offset + 6);
+    const method = getUint16(bytes, offset + 8);
+    const compressedSize = getUint32(bytes, offset + 18);
+    const uncompressedSize = getUint32(bytes, offset + 22);
+    const fileNameLength = getUint16(bytes, offset + 26);
+    const extraLength = getUint16(bytes, offset + 28);
+    const dataOffset = offset + 30 + fileNameLength + extraLength;
+    const dataEnd = dataOffset + compressedSize;
+    if (dataEnd > bytes.length) throw new Error("Archive ZIP tronquée");
+    if (method !== 0) throw new Error("ZIP compressé non supporté par cet import léger");
+    if (flags & 0x0008) throw new Error("ZIP avec data descriptor non supporté");
+    if (compressedSize !== uncompressedSize) throw new Error("Entrée ZIP incohérente");
+
+    const name = decoder.decode(bytes.slice(offset + 30, offset + 30 + fileNameLength)).replaceAll("\\", "/");
+    if (name && !name.endsWith("/")) entries[name] = decoder.decode(bytes.slice(dataOffset, dataEnd));
+    offset = dataEnd;
+  }
+
+  return entries;
 }
 
 function uniqueWikiTargets(markdown) {
@@ -2288,6 +2489,160 @@ function buildCodexFiles() {
     ...context.files.map((file) => ({ path: file.path, content: makeCodexNoteMarkdown(file, context), date: file.note.updatedAt })),
   ];
   return { context, files };
+}
+
+function joinArchivePath(...parts) {
+  return parts
+    .filter((part) => part !== null && part !== undefined && String(part).trim() !== "")
+    .map((part) => String(part).replaceAll("\\", "/").replace(/^\/+|\/+$/g, ""))
+    .filter(Boolean)
+    .join("/")
+    .replace(/\/+/g, "/");
+}
+
+function makePovmindRootAgentsMarkdown(context, basePath, snapshot) {
+  const sync = cleanGithubSyncState(state.githubSync);
+  const vault = activeVaultRecord();
+  return `# AGENTS.md\n\n` +
+    `Ce repo porte un contexte PovMind versionnable. Avant de coder, lis ce contexte dans cet ordre :\n\n` +
+    `1. \`${basePath}/manifest.json\`\n` +
+    `2. \`${basePath}/vaults/${state.security.vaultId}/manifest.json\`\n` +
+    `3. Les notes pertinentes dans \`${basePath}/vaults/${state.security.vaultId}/notes/\`\n` +
+    `4. Le snapshot \`${basePath}/vaults/${state.security.vaultId}/snapshots/latest.json\` si tu dois citer l'état exact du vault\n\n` +
+    `## Règles PovMind\n\n` +
+    `- Le code du repo reste la source exécutable; PovMind porte le contexte, les décisions et les liens.\n` +
+    `- Ne demande jamais le secret \`POVMIND_VAULT_TOKEN\` et ne commit jamais de token, \`.env\` ou bundle MCP privé.\n` +
+    `- Si une décision du vault contredit le code, signale explicitement la contradiction.\n` +
+    `- Après un changement durable, propose une mise à jour des notes PovMind liées.\n` +
+    `- Cite le hash du dernier snapshot quand tu bases une décision sur un état figé.\n\n` +
+    `## Vault actif\n\n` +
+    `- Nom : ${vault?.name || "PovMind"}\n` +
+    `- Vault ID : \`${state.security.vaultId}\`\n` +
+    `- Notes : ${context.files.length}\n` +
+    `- Liens : ${context.edges.length}\n` +
+    `- Dernier snapshot : ${snapshot ? `\`${snapshot.hash}\`` : "aucun"}\n` +
+    `- Cible GitHub : ${sync.repoFullName || "non renseignée"} · ${sync.branch} · \`${sync.basePath}\`\n`;
+}
+
+function makePovmindReadmeMarkdown(basePath) {
+  return `# PovMind context\n\n` +
+    `Ce dossier est généré par PovMind pour synchroniser un vault avec un repo GitHub.\n\n` +
+    `## Contenu\n\n` +
+    `- \`AGENTS.md\` : consignes racine pour Codex et les assistants de code.\n` +
+    `- \`${basePath}/manifest.json\` : manifest global de contexte.\n` +
+    `- \`${basePath}/vaults/*/manifest.json\` : manifest du vault actif.\n` +
+    `- \`${basePath}/vaults/*/notes/*.md\` : notes Markdown versionnables.\n` +
+    `- \`${basePath}/vaults/*/snapshots/latest.json\` : état figé avec hash global.\n` +
+    `- \`${basePath}/vaults/*/mcp-policy.json\` : politique assistant sans secret complet.\n` +
+    `- \`${basePath}/vaults/*/repo-manifest.json\` : résumé du repo lié au vault.\n\n` +
+    `Le contexte ne contient pas le token assistant complet. Les accès MCP restent protégés par \`POVMIND_VAULT_TOKEN\`.\n`;
+}
+
+function assistantAccessPolicyPayload(snapshot = latestSnapshot()) {
+  return {
+    format: "povmind-assistant-access-policy",
+    version: 1,
+    exportedAt: nowIso(),
+    vaultId: state.security.vaultId,
+    tokenSealed: Boolean(state.security.tokenHash),
+    tokenHint: state.security.tokenHint,
+    tokenHashStoredInPolicy: false,
+    algorithm: state.security.algorithm,
+    scopes: state.security.scopes,
+    tokenEnvironmentVariable: "POVMIND_VAULT_TOKEN",
+    latestSnapshot: snapshot ? {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt,
+      contentHash: snapshot.hash,
+    } : null,
+  };
+}
+
+function makePovmindGlobalManifest(context, basePath, snapshot) {
+  const vault = activeVaultRecord();
+  return {
+    app: APP_NAME,
+    appVersion: APP_VERSION,
+    format: "povmind-github-context",
+    version: 1,
+    exportedAt: context.exportedAt,
+    basePath,
+    activeVaultId,
+    activeVault: vault ? {
+      id: vault.id,
+      name: vault.name,
+      createdAt: vault.createdAt,
+      updatedAt: vault.updatedAt,
+      noteCount: state.notes.length,
+      tokenSealed: Boolean(state.security.tokenHash),
+    } : null,
+    github: githubSyncExportPayload(),
+    repo: repoSummaryPayload(),
+    snapshot: snapshot ? {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt,
+      contentHash: snapshot.hash,
+    } : null,
+    paths: {
+      vaultManifest: joinArchivePath(basePath, "vaults", state.security.vaultId, "manifest.json"),
+      notes: joinArchivePath(basePath, "vaults", state.security.vaultId, "notes"),
+      graph: joinArchivePath(basePath, "vaults", state.security.vaultId, "graph.json"),
+      latestSnapshot: joinArchivePath(basePath, "vaults", state.security.vaultId, "snapshots", "latest.json"),
+      mcpPolicy: joinArchivePath(basePath, "vaults", state.security.vaultId, "mcp-policy.json"),
+      repoManifest: joinArchivePath(basePath, "vaults", state.security.vaultId, "repo-manifest.json"),
+    },
+  };
+}
+
+function makePovmindVaultManifest(context, basePath, snapshot) {
+  const codexManifest = makeCodexManifest(context);
+  const vaultPath = joinArchivePath(basePath, "vaults", state.security.vaultId);
+  return {
+    ...codexManifest,
+    format: "povmind-github-vault",
+    version: 1,
+    appVersion: APP_VERSION,
+    vaultId: state.security.vaultId,
+    vaultName: activeVaultRecord()?.name || "PovMind",
+    exportedAt: context.exportedAt,
+    basePath: vaultPath,
+    snapshot: snapshot ? {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt,
+      contentHash: snapshot.hash,
+    } : null,
+    security: assistantAccessPolicyPayload(snapshot),
+    github: githubSyncExportPayload(),
+    notes: codexManifest.notes.map((note) => ({
+      ...note,
+      path: joinArchivePath(vaultPath, "notes", `${note.slug}.md`),
+    })),
+  };
+}
+
+function buildPovmindContextFiles(snapshot = latestSnapshot()) {
+  persistNow(false);
+  const exportedAt = nowIso();
+  const context = buildCodexContext(exportedAt);
+  const basePath = cleanGithubBasePath(state.githubSync?.basePath);
+  const vaultPath = joinArchivePath(basePath, "vaults", state.security.vaultId);
+  const files = [
+    { path: "AGENTS.md", content: makePovmindRootAgentsMarkdown(context, basePath, snapshot) },
+    { path: joinArchivePath(basePath, "README.md"), content: makePovmindReadmeMarkdown(basePath) },
+    { path: joinArchivePath(basePath, "manifest.json"), content: JSON.stringify(makePovmindGlobalManifest(context, basePath, snapshot), null, 2) },
+    { path: joinArchivePath(vaultPath, "manifest.json"), content: JSON.stringify(makePovmindVaultManifest(context, basePath, snapshot), null, 2) },
+    { path: joinArchivePath(vaultPath, "INDEX.md"), content: makeCodexIndexMarkdown(context) },
+    { path: joinArchivePath(vaultPath, "graph.json"), content: JSON.stringify(makeCodexGraph(context), null, 2) },
+    { path: joinArchivePath(vaultPath, "mcp-policy.json"), content: JSON.stringify(assistantAccessPolicyPayload(snapshot), null, 2) },
+    { path: joinArchivePath(vaultPath, "repo-manifest.json"), content: JSON.stringify(repoExportPayload(false), null, 2) },
+    { path: joinArchivePath(vaultPath, "snapshots", "latest.json"), content: JSON.stringify(snapshot?.payload || null, null, 2) },
+    ...context.files.map((file) => ({
+      path: joinArchivePath(vaultPath, "notes", `${file.slug}.md`),
+      content: makeCodexNoteMarkdown(file, context),
+      date: file.note.updatedAt,
+    })),
+  ];
+  return { context, files, basePath, snapshot };
 }
 
 function makeMcpAccessManifest(exportedAt = nowIso(), snapshot = latestSnapshot()) {
@@ -2830,6 +3185,7 @@ function buildSnapshotContent(createdAt) {
       resources: ["povmind://vault/manifest", "povmind://notes/{slug}", "povmind://repo/manifest", "povmind://repo/files/{path}"],
     },
     repo: repoExportPayload(false),
+    githubSync: githubSyncExportPayload(),
     summary: {
       noteCount: stats.notes,
       linkCount: stats.links,
@@ -2839,6 +3195,7 @@ function buildSnapshotContent(createdAt) {
       repoLinked: repoIsLinked(),
       repoCommit: state.repo.commit || "",
       repoTreeHash: state.repo.treeHash || "",
+      githubLinked: Boolean(state.githubSync.repoFullName),
     },
   };
 }
@@ -2907,6 +3264,148 @@ async function exportMcpBundle() {
   toast(`Bundle MCP exporté : ${context.files.length} note(s), token requis.`);
 }
 
+function syncGithubSettingsFromInputs() {
+  if (!els.githubRepoInput) return;
+  state.githubSync = cleanGithubSyncState({
+    ...state.githubSync,
+    repoFullName: els.githubRepoInput.value,
+    branch: els.githubBranchInput.value,
+    basePath: els.githubPathInput.value,
+  });
+  persistGithubSyncState();
+  renderGithubPanel();
+}
+
+async function refreshGithubStatus() {
+  try {
+    const response = await fetch("/api/github/status", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    state.githubSync.connector = {
+      ...state.githubSync.connector,
+      configured: Boolean(status.configured),
+      authenticated: Boolean(status.authenticated),
+      tokenStorage: status.tokenStorage || "server-http-only",
+    };
+    persistGithubSyncState();
+    renderGithubPanel();
+    return status;
+  } catch {
+    state.githubSync.connector = {
+      ...state.githubSync.connector,
+      configured: false,
+      authenticated: false,
+    };
+    renderGithubPanel();
+    return null;
+  }
+}
+
+async function exportGithubContextBundle(showToast = true) {
+  syncGithubSettingsFromInputs();
+  const snapshot = await createVaultSnapshot({ silent: true });
+  const { context, files } = buildPovmindContextFiles(snapshot);
+  const zipBytes = createZipArchive(files);
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(`povmind-github-context-${date}.zip`, new Blob([zipBytes], { type: "application/zip" }));
+  if (showToast) toast(`Contexte GitHub exporté : ${context.files.length} note(s).`);
+  return { context, files, snapshot };
+}
+
+async function connectGithub() {
+  syncGithubSettingsFromInputs();
+  const status = await refreshGithubStatus();
+  if (!status?.configured) {
+    toast("Connecteur GitHub non configuré sur Cloud Run.");
+    return;
+  }
+  const params = new URLSearchParams({
+    repo: state.githubSync.repoFullName,
+    branch: state.githubSync.branch,
+    path: state.githubSync.basePath,
+  });
+  window.open(`/auth/github/start?${params.toString()}`, "_blank", "noopener,noreferrer");
+  toast("Connexion GitHub ouverte.");
+}
+
+async function pushGithubContext() {
+  syncGithubSettingsFromInputs();
+  if (!state.githubSync.repoFullName) {
+    toast("Renseigne un repo GitHub owner/repo.");
+    return;
+  }
+
+  const snapshot = await createVaultSnapshot({ silent: true });
+  const { files } = buildPovmindContextFiles(snapshot);
+  try {
+    const response = await fetch("/api/github/push-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        repoFullName: state.githubSync.repoFullName,
+        branch: state.githubSync.branch,
+        basePath: state.githubSync.basePath,
+        message: `Sync PovMind context ${snapshot.hash.slice(0, 12)}`,
+        files: files.map((file) => ({ path: file.path, content: String(file.content ?? "") })),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+    state.githubSync.lastSyncedAt = nowIso();
+    state.githubSync.lastCommit = payload.commit || "";
+    state.githubSync.lastDirection = "push";
+    state.githubSync.connector = {
+      ...state.githubSync.connector,
+      configured: true,
+      authenticated: true,
+    };
+    persistGithubSyncState();
+    renderGithubPanel();
+    toast(`Contexte poussé sur GitHub : ${(payload.commit || "").slice(0, 8) || "ok"}.`);
+  } catch (error) {
+    console.error(error);
+    toast(`Push GitHub indisponible : ${error.message}`);
+  }
+}
+
+async function pullGithubContext() {
+  syncGithubSettingsFromInputs();
+  if (!state.githubSync.repoFullName) {
+    toast("Renseigne un repo GitHub owner/repo.");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/github/pull-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        repoFullName: state.githubSync.repoFullName,
+        branch: state.githubSync.branch,
+        basePath: state.githubSync.basePath,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+    const entries = Object.fromEntries((payload.files || []).map((file) => [file.path, file.content || ""]));
+    const result = importGithubContextEntries(entries);
+    state.githubSync.lastSyncedAt = nowIso();
+    state.githubSync.lastCommit = payload.commit || state.githubSync.lastCommit || "";
+    state.githubSync.lastDirection = "pull";
+    state.githubSync.connector = {
+      ...state.githubSync.connector,
+      configured: true,
+      authenticated: true,
+    };
+    persistGithubSyncState();
+    renderAll();
+    toast(result.imported ? "Contexte tiré depuis GitHub." : "Manifest GitHub tiré.");
+  } catch (error) {
+    console.error(error);
+    toast(`Pull GitHub indisponible : ${error.message}`);
+  }
+}
+
 function exportVault() {
   persistNow(false);
   const payload = {
@@ -2917,6 +3416,7 @@ function exportVault() {
     starredIds: [...state.starredIds],
     security: securityExportPayload(),
     repo: repoExportPayload(true),
+    githubSync: githubSyncExportPayload(),
     snapshots: state.snapshots,
     notes: state.notes,
   };
@@ -3004,77 +3504,182 @@ function ensureCodeRepoNote() {
   return activeNote();
 }
 
+function normalizeVaultImportPayload(parsed) {
+  const isSnapshot = parsed?.format === "povmind-vault-snapshot" && parsed.content && typeof parsed.content === "object";
+  const source = isSnapshot ? parsed.content : parsed;
+  const notes = Array.isArray(source?.notes) ? source.notes.map(cleanNote).filter(Boolean) : [];
+  const snapshots = Array.isArray(source?.snapshots)
+    ? source.snapshots.map(cleanSnapshot).filter(Boolean)
+    : [];
+  const snapshot = isSnapshot
+    ? cleanSnapshot({
+        id: parsed.snapshotId,
+        createdAt: parsed.createdAt,
+        hash: parsed.contentHash,
+        summary: source.summary || {},
+        payload: parsed,
+      })
+    : null;
+  if (snapshot) snapshots.unshift(snapshot);
+
+  return {
+    notes,
+    activeId: String(source?.activeId || ""),
+    starredIds: new Set(Array.isArray(source?.starredIds) ? source.starredIds.map(String) : []),
+    security: source?.security || parsed?.security || null,
+    repo: source?.repo || parsed?.repo || null,
+    githubSync: source?.githubSync || parsed?.githubSync || parsed?.github || null,
+    graphPositions: source?.graphPositions && typeof source.graphPositions === "object" ? source.graphPositions : null,
+    layout: source?.layout && typeof source.layout === "object" ? source.layout : null,
+    snapshots,
+  };
+}
+
+function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
+  const payload = normalizeVaultImportPayload(parsed);
+  if (!payload.notes.length) throw new Error("Aucune note valide");
+
+  const replace = confirm(`${sourceLabel}. OK = remplacer toutes les notes, Annuler = fusionner avec les notes existantes.`);
+  if (replace) {
+    const idMap = new Map();
+    state.notes = payload.notes.map((note) => {
+      const nextId = uid();
+      idMap.set(note.id, nextId);
+      return { ...note, id: nextId };
+    });
+    state.starredIds = new Set([...payload.starredIds].map((id) => idMap.get(id)).filter(Boolean));
+    state.activeId = idMap.get(payload.activeId) || state.notes[0]?.id || null;
+    state.graphPositions = payload.graphPositions ? clonePlain(payload.graphPositions) : {};
+    state.graphRuntimePositions = {};
+    if (payload.layout) {
+      state.layout = { ...state.layout, ...clonePlain(payload.layout) };
+      applyLayoutSettings();
+      persistLayoutSettings();
+    }
+    if (payload.security) {
+      state.security = cleanSecurityState(payload.security, activeVaultId);
+      state.assistantToken = "";
+      persistSecurityState();
+    }
+    if (payload.repo) {
+      state.repo = cleanRepoState(payload.repo);
+      persistRepoState();
+    }
+    if (payload.githubSync) {
+      state.githubSync = cleanGithubSyncState(payload.githubSync);
+      persistGithubSyncState();
+    }
+    state.snapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS);
+    persistSnapshots();
+    persistGraphPositions();
+  } else {
+    const idMap = new Map();
+    const merged = payload.notes.map((note) => {
+      const nextId = uid();
+      idMap.set(note.id, nextId);
+      return {
+        ...note,
+        id: nextId,
+        title: uniqueTitle(note.title),
+        updatedAt: nowIso(),
+      };
+    });
+    state.notes = [...merged, ...state.notes];
+    if (payload.repo && !repoIsLinked()) {
+      state.repo = cleanRepoState(payload.repo);
+      persistRepoState();
+    }
+    if (payload.githubSync && !state.githubSync.repoFullName) {
+      state.githubSync = cleanGithubSyncState(payload.githubSync);
+      persistGithubSyncState();
+    }
+    if (payload.snapshots.length) {
+      const importedSnapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean);
+      const byId = new Map([...state.snapshots, ...importedSnapshots].map((snapshot) => [snapshot.id, snapshot]));
+      state.snapshots = [...byId.values()]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, MAX_SNAPSHOTS);
+      persistSnapshots();
+    }
+    for (const id of payload.starredIds) {
+      const nextId = idMap.get(id);
+      if (nextId) state.starredIds.add(nextId);
+    }
+    state.activeId = merged[0]?.id || state.activeId;
+  }
+
+  persistStarredIds();
+  persistNow(true);
+  renderAll();
+}
+
 async function importVault(file) {
   if (!file) return;
   try {
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    const importedNotes = Array.isArray(parsed.notes) ? parsed.notes.map(cleanNote).filter(Boolean) : [];
-    const importedStarred = new Set(Array.isArray(parsed.starredIds) ? parsed.starredIds.map(String) : []);
-    if (!importedNotes.length) throw new Error("Aucune note valide");
-
-    const replace = confirm("Importer le carnet. OK = remplacer toutes les notes, Annuler = fusionner avec les notes existantes.");
-    if (replace) {
-      const idMap = new Map();
-      state.notes = importedNotes.map((note) => {
-        const nextId = uid();
-        idMap.set(note.id, nextId);
-        return { ...note, id: nextId };
-      });
-      state.starredIds = new Set([...importedStarred].map((id) => idMap.get(id)).filter(Boolean));
-      state.activeId = state.notes[0]?.id || null;
-      state.graphPositions = {};
-      state.graphRuntimePositions = {};
-      if (parsed.security) {
-        state.security = cleanSecurityState(parsed.security, activeVaultId);
-        state.assistantToken = "";
-        persistSecurityState();
-      }
-      state.repo = cleanRepoState(parsed.repo);
-      persistRepoState();
-      state.snapshots = Array.isArray(parsed.snapshots) ? parsed.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS) : [];
-      persistSnapshots();
-      persistGraphPositions();
-    } else {
-      const idMap = new Map();
-      const merged = importedNotes.map((note) => {
-        const nextId = uid();
-        idMap.set(note.id, nextId);
-        return {
-          ...note,
-          id: nextId,
-          title: uniqueTitle(note.title),
-          updatedAt: nowIso(),
-        };
-      });
-      state.notes = [...merged, ...state.notes];
-      if (parsed.repo && !repoIsLinked()) {
-        state.repo = cleanRepoState(parsed.repo);
-        persistRepoState();
-      }
-      if (Array.isArray(parsed.snapshots)) {
-        const importedSnapshots = parsed.snapshots.map(cleanSnapshot).filter(Boolean);
-        const byId = new Map([...state.snapshots, ...importedSnapshots].map((snapshot) => [snapshot.id, snapshot]));
-        state.snapshots = [...byId.values()]
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .slice(0, MAX_SNAPSHOTS);
-        persistSnapshots();
-      }
-      for (const id of importedStarred) {
-        const nextId = idMap.get(id);
-        if (nextId) state.starredIds.add(nextId);
-      }
-      state.activeId = merged[0]?.id || state.activeId;
-    }
-    persistStarredIds();
-    persistNow(true);
-    renderAll();
+    const parsed = JSON.parse(await file.text());
+    applyImportedVaultPayload(parsed, "Importer le carnet");
     toast("Import terminé.");
   } catch (error) {
     console.error(error);
     toast("Import impossible : fichier JSON invalide.");
   } finally {
     els.importInput.value = "";
+  }
+}
+
+function findPovmindSnapshotEntry(entries) {
+  const paths = Object.keys(entries);
+  return paths.find((path) => /(^|\/)snapshots\/latest\.json$/i.test(path))
+    || paths.find((path) => /(^|\/)povmind-vault.*\.json$/i.test(path))
+    || paths.find((path) => /(^|\/)latest\.json$/i.test(path));
+}
+
+function findPovmindGlobalManifestEntry(entries) {
+  return Object.keys(entries).find((path) => /(^|\/)\.povmind\/manifest\.json$/i.test(path))
+    || Object.keys(entries).find((path) => /(^|\/)manifest\.json$/i.test(path));
+}
+
+function importGithubContextEntries(entries) {
+  const snapshotPath = findPovmindSnapshotEntry(entries);
+  if (snapshotPath) {
+    const parsed = JSON.parse(entries[snapshotPath]);
+    applyImportedVaultPayload(parsed, "Importer le contexte GitHub PovMind");
+    return { imported: true, source: snapshotPath };
+  }
+
+  const manifestPath = findPovmindGlobalManifestEntry(entries);
+  if (manifestPath) {
+    const manifest = JSON.parse(entries[manifestPath]);
+    if (manifest.github) {
+      state.githubSync = cleanGithubSyncState(manifest.github);
+      persistGithubSyncState();
+      renderGithubPanel();
+    }
+    return { imported: false, source: manifestPath };
+  }
+
+  throw new Error("Aucun contexte PovMind trouvé");
+}
+
+async function importGithubContextFile(file) {
+  if (!file) return;
+  try {
+    const isZip = /\.zip$/i.test(file.name || "") || file.type === "application/zip";
+    if (isZip) {
+      const entries = await readStoredZipEntries(file);
+      const result = importGithubContextEntries(entries);
+      toast(result.imported ? "Contexte GitHub importé." : "Manifest GitHub importé.");
+      return;
+    }
+
+    const parsed = JSON.parse(await file.text());
+    applyImportedVaultPayload(parsed, "Importer le contexte GitHub PovMind");
+    toast("Contexte GitHub importé.");
+  } catch (error) {
+    console.error(error);
+    toast("Import GitHub impossible : export PovMind invalide.");
+  } finally {
+    els.githubContextInput.value = "";
   }
 }
 
@@ -3093,6 +3698,7 @@ function loadActiveVaultState() {
   state.assistantToken = "";
   state.snapshots = loadSnapshots();
   state.repo = loadRepoState();
+  state.githubSync = loadGithubSyncState();
   els.searchInput.value = "";
   loadStore();
   ensureDocumentationVault({ silent: true });
@@ -3430,6 +4036,26 @@ function commandDefinitions(query = "") {
       run: exportRepoManifest,
     },
     {
+      title: "Exporter contexte GitHub",
+      detail: ".povmind + AGENTS.md pour versionner le vault",
+      run: exportGithubContextBundle,
+    },
+    {
+      title: "Connecter GitHub",
+      detail: state.githubSync.repoFullName || "Configurer owner/repo",
+      run: connectGithub,
+    },
+    {
+      title: "Pousser contexte GitHub",
+      detail: state.githubSync.repoFullName || "Configurer owner/repo",
+      run: pushGithubContext,
+    },
+    {
+      title: "Tirer contexte GitHub",
+      detail: state.githubSync.repoFullName || "Configurer owner/repo",
+      run: pullGithubContext,
+    },
+    {
       title: "Exporter Codex KB",
       detail: "Générer un zip de base de connaissance",
       run: exportCodexKnowledgeBase,
@@ -3551,12 +4177,14 @@ function resetDemo() {
   state.graphRuntimePositions = {};
   state.snapshots = [];
   state.repo = cleanRepoState(null);
+  state.githubSync = cleanGithubSyncState(null);
   els.searchInput.value = "";
   ensureDocumentationVault({ silent: true });
   persistStarredIds();
   persistGraphPositions();
   persistSnapshots();
   persistRepoState();
+  persistGithubSyncState();
   persistNow(true);
   renderAll();
   toast("Démo réinitialisée.");
@@ -3623,6 +4251,15 @@ function bindEvents() {
   els.repoManifestInput.addEventListener("change", (event) => importRepoManifest(event.target.files?.[0]));
   els.exportRepoBtn.addEventListener("click", exportRepoManifest);
   els.codeRepoNoteBtn.addEventListener("click", ensureCodeRepoNote);
+  els.githubRepoInput.addEventListener("change", syncGithubSettingsFromInputs);
+  els.githubBranchInput.addEventListener("change", syncGithubSettingsFromInputs);
+  els.githubPathInput.addEventListener("change", syncGithubSettingsFromInputs);
+  els.githubConnectBtn.addEventListener("click", connectGithub);
+  els.githubPushBtn.addEventListener("click", pushGithubContext);
+  els.githubPullBtn.addEventListener("click", pullGithubContext);
+  els.exportGithubContextBtn.addEventListener("click", () => exportGithubContextBundle());
+  els.importGithubContextBtn.addEventListener("click", () => els.githubContextInput.click());
+  els.githubContextInput.addEventListener("change", (event) => importGithubContextFile(event.target.files?.[0]));
   els.exportMcpBtn.addEventListener("click", exportMcpBundle);
   els.exportCodexBtn.addEventListener("click", exportCodexKnowledgeBase);
   els.exportMdBtn.addEventListener("click", exportMarkdown);
@@ -3869,4 +4506,5 @@ function registerServiceWorker() {
 loadActiveVaultState();
 bindEvents();
 renderAll();
+refreshGithubStatus();
 registerServiceWorker();

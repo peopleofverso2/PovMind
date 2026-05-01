@@ -1047,7 +1047,13 @@ button:disabled {
   background: #fbfaf7;
 }
 
-.repo-row {
+.github-card {
+  background: #ffffff;
+  box-shadow: inset 4px 0 0 var(--ink);
+}
+
+.repo-row,
+.github-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1058,11 +1064,41 @@ button:disabled {
   background: #ffffff;
 }
 
-.repo-row span {
+.github-field {
+  align-items: stretch;
+  flex-direction: column;
+  justify-content: flex-start;
+  margin-top: 8px;
+}
+
+.github-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+}
+
+.repo-row span,
+.github-field span {
   color: var(--muted-2);
   font-size: 0.7rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.github-field input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.github-field input::placeholder {
+  color: var(--muted-2);
 }
 
 .repo-row strong {
@@ -1081,7 +1117,8 @@ button:disabled {
   line-height: 1.4;
 }
 
-.repo-actions {
+.repo-actions,
+.github-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1089,7 +1126,9 @@ button:disabled {
 }
 
 .repo-actions .primary-btn,
-.repo-actions .ghost-btn {
+.repo-actions .ghost-btn,
+.github-actions .primary-btn,
+.github-actions .ghost-btn {
   flex: 1 1 100px;
   text-align: center;
 }

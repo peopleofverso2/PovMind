@@ -49,6 +49,25 @@ curl https://povmind-472136847189.europe-west1.run.app/health
 curl https://povmind-472136847189.europe-west1.run.app/version
 ```
 
+## Activer le connecteur GitHub
+
+Créer une OAuth App GitHub avec ce callback :
+
+```txt
+https://povmind-472136847189.europe-west1.run.app/auth/github/callback
+```
+
+Puis ajouter les secrets au service Cloud Run :
+
+```bash
+gcloud run services update povmind \
+  --project campaign-truth-prod \
+  --region europe-west1 \
+  --set-env-vars PUBLIC_BASE_URL=https://povmind-472136847189.europe-west1.run.app,GITHUB_CLIENT_ID=...,GITHUB_CLIENT_SECRET=...,GITHUB_TOKEN_ENCRYPTION_KEY=...
+```
+
+`GITHUB_TOKEN_ENCRYPTION_KEY` doit être une valeur longue et aléatoire. Le token OAuth GitHub reste côté Cloud Run dans un cookie HttpOnly chiffré; il n'est pas exposé au JavaScript.
+
 ## Points couverts
 
 - PWA installable via `manifest.json` et service worker.
@@ -58,4 +77,5 @@ curl https://povmind-472136847189.europe-west1.run.app/version
 - Version publique `/version` pour diagnostic.
 - Script `npm run deploy:gcp` pour synchroniser systématiquement local et prod.
 - CSP, anti-framing, permissions minimales et referrer policy.
+- Endpoints GitHub OAuth et Push/Pull `.povmind/` prêts pour secrets Cloud Run.
 - Dockerfile compatible Cloud Run.
