@@ -150,6 +150,32 @@
 
     $("sync-btn").addEventListener("click", doSync);
     $("pull-btn").addEventListener("click", doPull);
+
+    // Auto-sync toggle (consumed by auto-sync.js).
+    const autoCheckbox = $("auto-sync");
+    if (autoCheckbox) {
+      autoCheckbox.checked = localStorage.getItem("povmind:sync:auto") === "1";
+      autoCheckbox.addEventListener("change", () => {
+        if (autoCheckbox.checked) {
+          if (!tokenInput.value.trim() && false) {
+            // Token is optional unless server enforces VAULT_SYNC_TOKEN.
+          }
+          localStorage.setItem("povmind:sync:auto", "1");
+          if (tokenInput.value.trim()) localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+          setStatus("Sync auto activée.", true);
+        } else {
+          localStorage.removeItem("povmind:sync:auto");
+          setStatus("Sync auto désactivée.");
+        }
+      });
+    }
+
+    // Surface auto-sync events for visual feedback.
+    window.addEventListener("povmind:auto-sync", (e) => {
+      const detail = e.detail || {};
+      if (detail.ok) setStatus("Auto-sync : vault " + detail.vaultId + " à jour.", true);
+      else setStatus("Auto-sync : échec sur " + detail.vaultId, false);
+    });
   }
 
   if (document.readyState === "loading") {

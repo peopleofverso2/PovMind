@@ -104,8 +104,10 @@ async function upsertVaultSnapshot(snapshot) {
     );
 
     // Replace strategy for MVP: delete then insert. Small datasets, simpler
-    // than a per-note diff. Move to row-level upsert later if needed.
-    await client.query("DELETE FROM vault_notes WHERE vault_id = $1", [vaultId]);
+    // than a per-note diff. NOTE: notes published from povchat live under the
+    // slug prefix `chat/...` and are PRESERVED so the bi-directional flow
+    // doesn't lose them on every PovMind sync.
+    await client.query("DELETE FROM vault_notes WHERE vault_id = $1 AND slug NOT LIKE 'chat/%'", [vaultId]);
 
     for (const note of notes) {
       const title = String(note.title || "untitled");
