@@ -1584,7 +1584,8 @@ button:disabled {
   }
 
   .sidebar {
-    max-height: 48vh;
+    max-height: none;
+    overflow: visible;
     padding-top: 104px;
   }
 

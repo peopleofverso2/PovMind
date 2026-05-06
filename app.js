@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.6.3";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
