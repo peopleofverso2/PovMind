@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.6.3";
+const APP_VERSION = "0.7.1";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -61,6 +61,11 @@ const NOTE_TEMPLATES = [
 ];
 
 const els = {
+  ribbonNewNoteBtn: document.getElementById("ribbonNewNoteBtn"),
+  ribbonSearchBtn: document.getElementById("ribbonSearchBtn"),
+  ribbonGraphBtn: document.getElementById("ribbonGraphBtn"),
+  ribbonDailyBtn: document.getElementById("ribbonDailyBtn"),
+  ribbonMcpBtn: document.getElementById("ribbonMcpBtn"),
   newNoteBtn: document.getElementById("newNoteBtn"),
   docVaultBtn: document.getElementById("docVaultBtn"),
   importBtn: document.getElementById("importBtn"),
@@ -89,6 +94,9 @@ const els = {
   viewModeBtn: document.getElementById("viewModeBtn"),
   exportMdBtn: document.getElementById("exportMdBtn"),
   deleteNoteBtn: document.getElementById("deleteNoteBtn"),
+  activeTabTitle: document.getElementById("activeTabTitle"),
+  graphTabBtn: document.getElementById("graphTabBtn"),
+  tabNewNoteBtn: document.getElementById("tabNewNoteBtn"),
   folderFilters: document.getElementById("folderFilters"),
   starredList: document.getElementById("starredList"),
   editorGrid: document.getElementById("editorGrid"),
@@ -868,12 +876,17 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Index",
       folder: "Documentation PovMind",
-      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
     },
     {
       title: "PovMind - Architecture",
       folder: "Documentation PovMind",
       body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS/JavaScript vanilla pensée comme un vault Markdown local.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`app.js\` : modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture`,
+    },
+    {
+      title: "PovMind - Interface Obsidian",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Interface Obsidian\n\nDécision du 2026-05-06 : PovMind doit se manipuler comme un vrai workbench de connaissance, proche de la structure Obsidian, tout en gardant l'identité People of Verso.\n\n## Structure retenue\n\n- Rail gauche d'actions rapides : nouvelle note, recherche, graphe, journal, export MCP.\n- Explorateur de vault à gauche : vault actif, création/renommage, notes, dossiers et recherche.\n- Onglets de travail au centre : note active, vue graphique et création rapide.\n- Workspace central : titre, dossier, actions de note, éditeur Markdown et aperçu.\n- Panneau contexte à droite : accès assistant, snapshots, repo de code, backlinks et graphe.\n- Redimensionnement conservé pour la navigation, l'éditeur, le panneau contexte et le graphe.\n- Graphe accessible depuis un onglet et affichable en plein écran même quand le panneau droit est masqué.\n\n## Intention UX\n\nL'app ne doit pas ressembler à une landing page. Elle doit être un cockpit dense, lisible et durable pour travailler avec des notes, un repo, des snapshots et des assistants sécurisés.\n\n## Style\n\n- Fond sombre, panneaux sobres, séparateurs nets.\n- Rouge People of Verso réservé aux actions primaires et états actifs.\n- Cartes limitées aux vrais modules fonctionnels, sans décoration marketing.\n- Typographie compacte et scannable pour une utilisation répétée.\n\nVoir [[PovMind - Architecture]], [[PovMind - Auth et multivault]] et [[PovMind - MCP assistant]]. #povmind #ui #obsidian`,
     },
     {
       title: "PovMind - Sécurité et tokens",
@@ -918,7 +931,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Backlog contexte",
       folder: "Documentation PovMind",
-      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n- [x] Ajouter l'export \`.povmind/\` + \`AGENTS.md\` décrit dans [[PovMind - GitHub sync]].\n- [x] Ajouter le scaffold Cloud Run OAuth GitHub sans token longue durée dans le navigateur.\n\n## À prioriser\n\n- [ ] Configurer les secrets OAuth GitHub sur Cloud Run.\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un audit log du connecteur GitHub.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
+      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n- [x] Ajouter l'export \`.povmind/\` + \`AGENTS.md\` décrit dans [[PovMind - GitHub sync]].\n- [x] Ajouter le scaffold Cloud Run OAuth GitHub sans token longue durée dans le navigateur.\n- [x] Structurer l'interface comme un workbench type Obsidian décrit dans [[PovMind - Interface Obsidian]].\n\n## À prioriser\n\n- [ ] Configurer les secrets OAuth GitHub sur Cloud Run.\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un audit log du connecteur GitHub.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
     },
   ];
 }
@@ -1410,6 +1423,7 @@ function renderActiveNote() {
   const note = activeNote();
   if (!note) return;
   els.titleInput.value = note.title;
+  els.activeTabTitle.textContent = clampText(note.title || "Sans titre", 34);
   els.folderInput.value = normalizeFolder(note.folder);
   els.editor.value = note.body;
   els.wordCount.textContent = `${countWords(note.body)} ${countWords(note.body) > 1 ? "mots" : "mot"}`;
@@ -4275,6 +4289,16 @@ function handleFolderInput() {
 
 function bindEvents() {
   els.newNoteBtn.addEventListener("click", () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"));
+  els.ribbonNewNoteBtn.addEventListener("click", () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"));
+  els.tabNewNoteBtn.addEventListener("click", () => createNote(`Note ${state.notes.length + 1}`, "# Nouvelle note\n\n"));
+  els.ribbonSearchBtn.addEventListener("click", () => {
+    els.searchInput.focus();
+    els.searchInput.select();
+  });
+  els.ribbonGraphBtn.addEventListener("click", () => toggleGraphFullscreen());
+  els.graphTabBtn.addEventListener("click", () => toggleGraphFullscreen());
+  els.ribbonDailyBtn.addEventListener("click", createDailyNote);
+  els.ribbonMcpBtn.addEventListener("click", exportMcpBundle);
   els.vaultSelect.addEventListener("change", () => switchVault(els.vaultSelect.value));
   els.newVaultBtn.addEventListener("click", createVault);
   els.renameVaultBtn.addEventListener("click", renameActiveVault);

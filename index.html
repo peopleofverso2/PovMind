@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.6.3" />
+  <meta name="povmind-version" content="0.7.1" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,10 +26,19 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.6.3" />
+  <link rel="stylesheet" href="styles.css?v=0.7.1" />
 </head>
 <body>
   <div class="app-shell">
+    <nav class="activity-ribbon" aria-label="Actions du vault">
+      <div class="ribbon-logo" aria-hidden="true">PM</div>
+      <button id="ribbonNewNoteBtn" class="ribbon-btn active" type="button" aria-label="Nouvelle note" title="Nouvelle note">✎</button>
+      <button id="ribbonSearchBtn" class="ribbon-btn" type="button" aria-label="Rechercher" title="Rechercher">⌕</button>
+      <button id="ribbonGraphBtn" class="ribbon-btn" type="button" aria-label="Vue graphique" title="Vue graphique">⌬</button>
+      <button id="ribbonDailyBtn" class="ribbon-btn" type="button" aria-label="Journal du jour" title="Journal">◷</button>
+      <button id="ribbonMcpBtn" class="ribbon-btn" type="button" aria-label="Exporter MCP" title="Exporter MCP">AI</button>
+    </nav>
+
     <aside class="sidebar" aria-label="Navigation des notes">
       <header class="brand">
         <div class="brand-mark" aria-hidden="true">PM</div>
@@ -95,6 +104,14 @@
     <div id="sidebarResizer" class="layout-resizer sidebar-resizer" role="separator" aria-label="Redimensionner la navigation" aria-orientation="vertical" tabindex="0"></div>
 
     <main class="workspace">
+      <div class="workspace-tabs" aria-label="Onglets de travail">
+        <button class="workspace-tab active" type="button" aria-current="page">
+          <span id="activeTabTitle">Note</span>
+          <span aria-hidden="true">×</span>
+        </button>
+        <button id="graphTabBtn" class="workspace-tab" type="button">Vue graphique</button>
+        <button id="tabNewNoteBtn" class="workspace-tab-add" type="button" aria-label="Nouvelle note">+</button>
+      </div>
       <header class="topbar">
         <div class="title-stack">
           <input id="titleInput" class="title-input" type="text" spellcheck="false" aria-label="Titre de la note" />
@@ -293,6 +310,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.6.3"></script>
+  <script src="app.js?v=0.7.1"></script>
 </body>
 </html>

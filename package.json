@@ -1,6 +1,6 @@
 {
   "name": "povmind",
-  "version": "0.6.3",
+  "version": "0.7.1",
   "private": true,
   "description": "PovMind static vault app served for Cloud Run.",
   "scripts": {
