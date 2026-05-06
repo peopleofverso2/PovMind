@@ -36,8 +36,27 @@
 
   function buildSnapshot(vaultId) {
     if (!vaultId) throw new Error("Aucun vault actif détecté.");
-    const notes = readJson(vaultKey(vaultId, "notes"), []);
-    if (!Array.isArray(notes)) throw new Error("Le vault est chiffré ou indisponible.");
+
+    // PovMind writes an envelope under :notes:
+    //   { version, activeId, starredIds, snapshots, notes: [...] }
+    // Older formats may have used a raw array. Handle both.
+    const raw = readJson(vaultKey(vaultId, "notes"), null);
+    let notes;
+    if (raw === null) {
+      // Possible reasons: vault is encrypted (notes were moved to :notes-sealed)
+      // OR the vault is brand-new with nothing saved yet.
+      const sealed = localStorage.getItem(vaultKey(vaultId, "notes-sealed"));
+      if (sealed) {
+        throw new Error("Vault verrouillé (chiffré). Déverrouille-le dans PovMind avec ta passphrase, puis reviens ici.");
+      }
+      notes = [];
+    } else if (Array.isArray(raw)) {
+      notes = raw;
+    } else if (raw && Array.isArray(raw.notes)) {
+      notes = raw.notes;
+    } else {
+      throw new Error("Format inattendu sous povmind:vault:" + vaultId + ":notes — ouvre une issue avec un export du localStorage.");
+    }
     const registry = readJson("povmind:vaults:index", []);
     const meta = Array.isArray(registry)
       ? registry.find((v) => v && v.id === vaultId) || {}
@@ -143,10 +162,13 @@
       $("pull-btn").disabled = true;
       return;
     }
-    const notes = readJson(vaultKey(vaultId, "notes"), []);
-    const noteCount = Array.isArray(notes) ? notes.length : 0;
+    // Match the same envelope-aware extraction as buildSnapshot.
+    const raw = readJson(vaultKey(vaultId, "notes"), null);
+    const sealed = !raw && Boolean(localStorage.getItem(vaultKey(vaultId, "notes-sealed")));
+    const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.notes) ? raw.notes : []);
     vaultInfo.textContent =
-      "Vault actif : " + vaultId + " · " + noteCount + " note(s) en localStorage.";
+      "Vault actif : " + vaultId + " · " + arr.length + " note(s) en localStorage" +
+      (sealed ? " (chiffré, déverrouille-le dans PovMind)" : "") + ".";
 
     $("sync-btn").addEventListener("click", doSync);
     $("pull-btn").addEventListener("click", doPull);

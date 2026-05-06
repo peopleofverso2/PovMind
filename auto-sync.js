@@ -45,8 +45,21 @@
   }
 
   function buildSnapshot(vaultId) {
-    const notes = read(`povmind:vault:${vaultId}:notes`, []);
-    if (!Array.isArray(notes)) return null; // sealed/encrypted vault, skip
+    // PovMind stores under :notes an envelope { version, notes: [...] };
+    // older versions stored the raw array. Handle both, skip if encrypted.
+    const raw = read(`povmind:vault:${vaultId}:notes`, null);
+    let notes;
+    if (raw === null) {
+      if (localStorage.getItem(`povmind:vault:${vaultId}:notes-sealed`)) return null;
+      notes = [];
+    } else if (Array.isArray(raw)) {
+      notes = raw;
+    } else if (raw && Array.isArray(raw.notes)) {
+      notes = raw.notes;
+    } else {
+      return null;
+    }
+
     const registry = read(REGISTRY_KEY, []);
     const meta = Array.isArray(registry) ? registry.find((v) => v && v.id === vaultId) || {} : {};
     const security = read(`povmind:vault:${vaultId}:security`, null);
