@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -111,6 +111,12 @@ const els = {
   templatePicker: document.getElementById("templatePicker"),
   templateList: document.getElementById("templateList"),
   closeTemplateBtn: document.getElementById("closeTemplateBtn"),
+  vaultDialog: document.getElementById("vaultDialog"),
+  vaultDialogTitle: document.getElementById("vaultDialogTitle"),
+  vaultDialogInput: document.getElementById("vaultDialogInput"),
+  vaultDialogCancelBtn: document.getElementById("vaultDialogCancelBtn"),
+  vaultDialogSecondaryBtn: document.getElementById("vaultDialogSecondaryBtn"),
+  vaultDialogConfirmBtn: document.getElementById("vaultDialogConfirmBtn"),
   sidebarResizer: document.getElementById("sidebarResizer"),
   inspectorResizer: document.getElementById("inspectorResizer"),
   editorResizer: document.getElementById("editorResizer"),
@@ -160,6 +166,7 @@ const state = {
   starredIds: loadStarredIds(),
   commandItems: [],
   commandIndex: 0,
+  vaultDialogMode: "",
   layout: loadLayoutSettings(),
   layoutDragging: null,
   graphFullscreen: false,
@@ -3716,9 +3723,7 @@ function switchVault(vaultId) {
   toast(`Vault ouvert : ${activeVaultRecord()?.name || "PovMind"}.`);
 }
 
-function createVault() {
-  const rawName = prompt("Nom du nouveau vault PovMind ?", `Vault ${vaultRegistry.vaults.length + 1}`);
-  if (rawName === null) return;
+function createVaultWithName(rawName) {
   const name = cleanVaultName(rawName, `Vault ${vaultRegistry.vaults.length + 1}`);
   persistNow(false);
   const id = createVaultId();
@@ -3739,17 +3744,53 @@ function createVault() {
   toast(`Vault créé : ${name}.`);
 }
 
-function renameActiveVault() {
+function renameActiveVaultToName(rawName) {
   const current = activeVaultRecord();
   if (!current) return;
-  const rawName = prompt("Renommer le vault actif", current.name);
-  if (rawName === null) return;
   const name = cleanVaultName(rawName, current.name);
   current.name = name;
   current.updatedAt = nowIso();
   persistVaultRegistry();
   renderVaultSwitcher();
   toast(`Vault renommé : ${name}.`);
+}
+
+function openVaultDialog(mode = "create") {
+  const current = activeVaultRecord();
+  state.vaultDialogMode = mode;
+  const isRename = mode === "rename";
+  els.vaultDialogTitle.textContent = isRename ? "Renommer le vault" : "Nouveau vault";
+  els.vaultDialogInput.value = isRename ? current?.name || "PovMind" : `Vault ${vaultRegistry.vaults.length + 1}`;
+  els.vaultDialogConfirmBtn.textContent = isRename ? "Renommer" : "Créer";
+  els.vaultDialog.hidden = false;
+  requestAnimationFrame(() => {
+    els.vaultDialogInput.focus();
+    els.vaultDialogInput.select();
+  });
+}
+
+function closeVaultDialog() {
+  els.vaultDialog.hidden = true;
+  state.vaultDialogMode = "";
+}
+
+function confirmVaultDialog() {
+  const value = els.vaultDialogInput.value;
+  const mode = state.vaultDialogMode;
+  closeVaultDialog();
+  if (mode === "rename") {
+    renameActiveVaultToName(value);
+  } else {
+    createVaultWithName(value);
+  }
+}
+
+function createVault() {
+  openVaultDialog("create");
+}
+
+function renameActiveVault() {
+  openVaultDialog("rename");
 }
 
 function cycleView() {
@@ -4349,6 +4390,22 @@ function bindEvents() {
   els.templatePicker.addEventListener("click", (event) => {
     if (event.target === els.templatePicker) closeTemplatePicker();
   });
+  els.vaultDialogCancelBtn.addEventListener("click", closeVaultDialog);
+  els.vaultDialogSecondaryBtn.addEventListener("click", closeVaultDialog);
+  els.vaultDialogConfirmBtn.addEventListener("click", confirmVaultDialog);
+  els.vaultDialog.addEventListener("click", (event) => {
+    if (event.target === els.vaultDialog) closeVaultDialog();
+  });
+  els.vaultDialogInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      confirmVaultDialog();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeVaultDialog();
+    }
+  });
 
   els.commandInput.addEventListener("input", () => {
     state.commandIndex = 0;
@@ -4458,9 +4515,13 @@ function bindEvents() {
         closeTemplatePicker();
         return;
       }
+      if (!els.vaultDialog.hidden) {
+        closeVaultDialog();
+        return;
+      }
     }
 
-    if (!els.commandPalette.hidden || !els.templatePicker.hidden) return;
+    if (!els.commandPalette.hidden || !els.templatePicker.hidden || !els.vaultDialog.hidden) return;
 
     const modifier = event.ctrlKey || event.metaKey;
     if (!modifier) return;

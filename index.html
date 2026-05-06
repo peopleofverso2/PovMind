@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.6.1" />
+  <meta name="povmind-version" content="0.6.2" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.6.1" />
+  <link rel="stylesheet" href="styles.css?v=0.6.2" />
 </head>
 <body>
   <div class="app-shell">
@@ -274,6 +274,25 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.6.1"></script>
+  <div id="vaultDialog" class="template-picker" role="dialog" aria-modal="true" aria-labelledby="vaultDialogTitle" hidden>
+    <div class="template-panel vault-dialog-panel">
+      <div class="template-panel-header">
+        <strong id="vaultDialogTitle">Nouveau vault</strong>
+        <button id="vaultDialogCancelBtn" class="icon-btn" type="button" aria-label="Fermer">×</button>
+      </div>
+      <div class="vault-dialog-body">
+        <label class="vault-dialog-field">
+          <span>Nom du vault</span>
+          <input id="vaultDialogInput" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="vault-dialog-actions">
+          <button id="vaultDialogSecondaryBtn" class="ghost-btn" type="button">Annuler</button>
+          <button id="vaultDialogConfirmBtn" class="primary-btn" type="button">Créer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=0.6.2"></script>
 </body>
 </html>

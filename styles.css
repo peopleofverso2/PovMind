@@ -1516,6 +1516,45 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.vault-dialog-panel {
+  width: min(440px, calc(100vw - 28px));
+}
+
+.vault-dialog-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.vault-dialog-field {
+  display: grid;
+  gap: 7px;
+}
+
+.vault-dialog-field span {
+  color: var(--muted-2);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vault-dialog-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 11px 12px;
+  color: var(--ink);
+  background: #ffffff;
+  font-weight: 850;
+}
+
+.vault-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (max-width: 1180px) {
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
