@@ -2,7 +2,7 @@
 
 PovMind est une app locale de notes Markdown inspirée du principe des vaults connectés : liens `[[wiki]]`, backlinks, graphe, tags, recherche, export/import et export Codex KB.
 
-Elle ne reprend ni le nom, ni les assets, ni l'interface exacte d'Obsidian. C'est une alternative minimale créée en HTML/CSS/JavaScript vanilla.
+Elle ne reprend ni le nom, ni les assets, ni l'interface exacte d'Obsidian. C'est une alternative minimale créée en HTML/CSS avec un coeur TypeScript compilé en JavaScript navigateur.
 
 ## Principe du vault
 
@@ -26,6 +26,8 @@ Option recommandée pour activer le mode PWA/cache hors ligne :
 
 ```bash
 cd povmind-app
+npm install
+npm run build
 npm start
 ```
 
@@ -73,9 +75,22 @@ Le repo GitHub doit devenir le registre du code, des revues et de la CI. Le vaul
 Le dépôt contient :
 
 - `.gitignore` pour exclure secrets, exports, caches et artefacts locaux ;
-- `.github/workflows/ci.yml` pour vérifier version, syntaxe et manifest repo ;
+- `.github/workflows/ci.yml` pour vérifier version, build TypeScript, syntaxe et manifest repo ;
 - `SECURITY.md` pour documenter le modèle de sécurité actuel ;
 - `scripts/repo-manifest.mjs` pour relier un commit Git au vault.
+
+## Architecture TypeScript
+
+Depuis `0.8.0`, `src/app.ts` est la source de vérité de l'interface PovMind. Le fichier `app.js` reste généré et commité pour garder un déploiement Cloud Run statique très simple.
+
+Commandes utiles :
+
+```bash
+npm run build
+npm run check
+```
+
+Le build TypeScript commence par des frontières de types sur les objets critiques : notes, vault registry, layout, sécurité assistant et snapshots. Les prochaines extractions peuvent déplacer ces modèles vers des modules dédiés sans changer l'interface servie.
 
 Publication initiale recommandée :
 
@@ -121,7 +136,7 @@ Le panneau “Code repo” fait du repo de code une partie native du vault. Le f
 npm run repo:manifest -- /chemin/du/repo --output=povmind-repo-manifest.json
 ```
 
-Puis importe le JSON depuis PovMind. Le manifest contient l'identité du repo, la branche, le commit, l'état dirty/clean, un `treeHash`, une politique d'indexation et les fichiers texte autorisés. Les limites par défaut sont `--max-files=220` et `--max-bytes=180000`.
+Puis importe le JSON depuis PovMind. Le manifest contient l'identité du repo, la branche, le commit, l'état dirty/clean, un `treeHash`, une politique d'indexation et les fichiers texte autorisés. Les limites par défaut sont `--max-files=220` et `--max-bytes=240000`.
 
 Par défaut, le script exclut les secrets, `.env`, clefs, credentials, tokens, dossiers lourds, caches de test, `node_modules`, `.git`, `output`, et respecte `.gitignore` quand le dossier est un repo Git.
 

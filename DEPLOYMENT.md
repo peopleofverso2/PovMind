@@ -26,7 +26,7 @@ npm run deploy:gcp
 Cette commande :
 
 - synchronise la version entre `package.json`, `index.html`, `sw.js` et `app.js` ;
-- lance `npm run check` ;
+- lance `npm run check`, qui compile `src/app.ts` vers `app.js` puis vérifie la syntaxe ;
 - déploie Cloud Run ;
 - vérifie que `/version`, `/health` et le HTML public servent la même version que le local.
 

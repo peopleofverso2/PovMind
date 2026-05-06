@@ -1,18 +1,22 @@
 {
   "name": "povmind",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "description": "PovMind static vault app served for Cloud Run.",
   "scripts": {
     "start": "node server.js",
+    "build": "tsc -p tsconfig.json",
     "sync:version": "node scripts/sync-version.mjs",
-    "check": "node --check server.js && node --check app.js",
-    "smoke": "node --check server.js && node --check app.js",
+    "check": "npm run build && node --check server.js && node --check app.js",
+    "smoke": "npm run check",
     "verify:online": "node scripts/verify-online.mjs",
     "deploy:gcp": "node scripts/deploy-gcp.mjs",
     "repo:manifest": "node scripts/repo-manifest.mjs"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

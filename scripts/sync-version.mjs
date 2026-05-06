@@ -36,8 +36,11 @@ updateFile("sw.js", (source) => (
   source.replace(/const CACHE_NAME = "povmind-cache-v[^"]+";/, `const CACHE_NAME = "povmind-cache-v${version}";`)
 ));
 
-updateFile("app.js", (source) => (
-  source.replace(/const APP_VERSION = "[^"]+";/, `const APP_VERSION = "${version}";`)
-));
+for (const appPath of ["src/app.ts", "app.js"]) {
+  if (!fs.existsSync(path.join(root, appPath))) continue;
+  updateFile(appPath, (source) => (
+    source.replace(/const APP_VERSION = "[^"]+";/, `const APP_VERSION = "${version}";`)
+  ));
+}
 
 console.log(`PovMind version synchronisée: ${version}`);
