@@ -60,6 +60,16 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) 8px minmax(0, 1fr) 8px var(--inspector-width);
@@ -312,12 +322,20 @@ button:disabled {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.vault-switcher-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .vault-select-field {
   display: grid;
   gap: 5px;
 }
 
 .vault-select-field span,
+.vault-switcher-title,
 .vault-registry-meta {
   color: var(--muted-2);
   font-size: 0.68rem;
@@ -338,11 +356,12 @@ button:disabled {
 }
 
 .vault-switcher-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
+.vault-switcher-actions .primary-btn,
 .vault-switcher-actions .ghost-btn {
   min-height: 34px;
   padding: 8px 9px;
@@ -1528,6 +1547,15 @@ button:disabled {
   .sidebar {
     max-height: 48vh;
     padding-top: 104px;
+  }
+
+  .vault-switcher-head {
+    grid-template-columns: 1fr;
+  }
+
+  .vault-switcher-actions .primary-btn,
+  .vault-switcher-actions .ghost-btn {
+    flex: 1 1 130px;
   }
 
   .topbar {
