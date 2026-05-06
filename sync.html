@@ -11,12 +11,12 @@
   <main class="sync-page">
     <h1>Sync vault → Povchat</h1>
     <p id="vault-info">Chargement…</p>
-    <p>
+    <form id="token-form" autocomplete="off" onsubmit="return false">
       <label>
         Vault sync token (optionnel, requis si <code>VAULT_SYNC_TOKEN</code> est défini sur le serveur) :
         <input id="token" type="password" autocomplete="off" />
       </label>
-    </p>
+    </form>
     <p>
       <label>
         <input id="auto-sync" type="checkbox" /> Sync auto (toutes les 15 s, debouncé)
@@ -25,6 +25,7 @@
     <p>
       <button id="sync-btn" type="button">Synchroniser maintenant</button>
       <button id="pull-btn" type="button">Vérifier l'état serveur</button>
+      <button id="test-btn" type="button">Tester le token (ping serveur)</button>
     </p>
     <pre id="status">Prêt.</pre>
     <p><a href="/">← retour à PovMind</a></p>

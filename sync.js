@@ -151,6 +151,28 @@
     $("sync-btn").addEventListener("click", doSync);
     $("pull-btn").addEventListener("click", doPull);
 
+    // Round-trip test: hits /api/vaults with the entered token and reports
+    // 200/401/anything-else. Decouples token validity from the localStorage
+    // snapshot logic above.
+    const testBtn = $("test-btn");
+    if (testBtn) {
+      testBtn.addEventListener("click", async () => {
+        try {
+          setStatus("Ping serveur…");
+          const r = await fetch("/api/vaults", { headers: authHeaders() });
+          const txt = await r.text();
+          let body;
+          try { body = JSON.parse(txt); } catch { body = txt; }
+          setStatus(
+            "HTTP " + r.status + " — " + JSON.stringify(body).slice(0, 200),
+            r.ok,
+          );
+        } catch (err) {
+          setStatus("Erreur réseau : " + err.message, false);
+        }
+      });
+    }
+
     // Auto-sync toggle (consumed by auto-sync.js).
     const autoCheckbox = $("auto-sync");
     if (autoCheckbox) {
