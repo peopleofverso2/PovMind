@@ -1002,6 +1002,12 @@ button:disabled {
   text-align: center;
 }
 
+.security-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--line);
+}
+
 .snapshot-card {
   background: #fffdf8;
 }

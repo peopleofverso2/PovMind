@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.8.0" />
+  <meta name="povmind-version" content="0.9.1" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.8.0" />
+  <link rel="stylesheet" href="styles.css?v=0.9.1" />
 </head>
 <body>
   <div class="app-shell">
@@ -167,6 +167,20 @@
           <button id="generateTokenBtn" class="ghost-btn" type="button">Nouveau token</button>
           <button id="copyTokenBtn" class="ghost-btn" type="button">Copier</button>
           <button id="securityExportMcpBtn" class="primary-btn" type="button">MCP</button>
+        </div>
+        <div class="security-divider"></div>
+        <div class="security-row">
+          <span>Vault local</span>
+          <strong id="vaultLockStatus">Non chiffré</strong>
+        </div>
+        <label class="token-field">
+          <span>Passphrase</span>
+          <input id="vaultPassphraseInput" type="password" autocomplete="current-password" placeholder="Passphrase du vault" aria-label="Passphrase du vault" />
+        </label>
+        <div class="security-actions">
+          <button id="enableVaultCryptoBtn" class="ghost-btn" type="button">Chiffrer</button>
+          <button id="unlockVaultBtn" class="ghost-btn" type="button">Déverrouiller</button>
+          <button id="lockVaultBtn" class="ghost-btn" type="button">Verrouiller</button>
         </div>
       </section>
 
@@ -310,6 +324,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.8.0"></script>
+  <script src="app.js?v=0.9.1"></script>
 </body>
 </html>

@@ -234,7 +234,7 @@ Le serveur MCP exige :
 POVMIND_VAULT_TOKEN="povm_..." node mcp/povmind-server.mjs
 ```
 
-Ce mécanisme protège l'accès assistant au bundle exporté. Il ne chiffre pas encore les notes stockées dans `localStorage`; le chiffrement at-rest reste une étape suivante.
+Le même panneau permet aussi de chiffrer le vault local : la passphrase dérive une clé AES-GCM-256 via PBKDF2-SHA-256, la clé reste en mémoire uniquement, et les notes + snapshots sont stockés dans `povmind:vault:{vaultId}:notes-sealed`. Les exports JSON, MCP, Codex KB ou GitHub restent volontairement en clair quand le vault est déverrouillé.
 
 ## Snapshots du vault
 

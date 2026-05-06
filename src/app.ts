@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.9.1";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -19,6 +19,7 @@ const LEGACY_STARRED_KEY = "graphnotes:starred";
 const MAX_GRAPH_NODES = 80;
 const MAX_SNAPSHOTS = 24;
 const MAX_REPO_FILES_RENDERED = 8;
+const VAULT_CRYPTO_ITERATIONS = 310000;
 const ROOT_FOLDER = "Racine";
 
 type JsonObject = Record<string, any>;
@@ -70,6 +71,17 @@ interface SecurityState {
   tokenRotatedAt: string;
   algorithm: string;
   scopes: string[];
+  encryption: VaultEncryptionState;
+}
+
+interface VaultEncryptionState {
+  enabled: boolean;
+  algorithm: string;
+  kdf: string;
+  iterations: number;
+  salt: string;
+  encryptedAt: string;
+  updatedAt: string;
 }
 
 interface VaultSnapshot {
@@ -108,6 +120,8 @@ interface AppState {
   graphClickSuppressed: boolean;
   security: SecurityState;
   assistantToken: string;
+  vaultCryptoKey: CryptoKey | null;
+  vaultUnlocked: boolean;
   snapshots: VaultSnapshot[];
   repo: JsonObject;
   githubSync: JsonObject;
@@ -227,6 +241,11 @@ const els: Record<string, any> = {
   generateTokenBtn: document.getElementById("generateTokenBtn"),
   copyTokenBtn: document.getElementById("copyTokenBtn"),
   securityExportMcpBtn: document.getElementById("securityExportMcpBtn"),
+  vaultLockStatus: document.getElementById("vaultLockStatus"),
+  vaultPassphraseInput: document.getElementById("vaultPassphraseInput"),
+  enableVaultCryptoBtn: document.getElementById("enableVaultCryptoBtn"),
+  unlockVaultBtn: document.getElementById("unlockVaultBtn"),
+  lockVaultBtn: document.getElementById("lockVaultBtn"),
   snapshotCount: document.getElementById("snapshotCount"),
   snapshotHashLabel: document.getElementById("snapshotHashLabel"),
   createSnapshotBtn: document.getElementById("createSnapshotBtn"),
@@ -277,6 +296,8 @@ const state: AppState = {
   graphClickSuppressed: false,
   security: loadSecurityState(),
   assistantToken: "",
+  vaultCryptoKey: null,
+  vaultUnlocked: false,
   snapshots: loadSnapshots() as VaultSnapshot[],
   repo: loadRepoState() as JsonObject,
   githubSync: loadGithubSyncState() as JsonObject,
@@ -290,9 +311,21 @@ function uid() {
 function randomBase64Url(byteLength = 32) {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function base64UrlToBytes(value: string) {
+  const padded = String(value || "").replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(String(value || "").length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
 function createVaultId() {
@@ -419,6 +452,17 @@ function touchActiveVault() {
   persistVaultRegistry();
 }
 
+async function persistActiveVaultBeforeLeaving() {
+  if (vaultLocked()) return;
+  clearTimeout(state.saveTimer);
+  state.saveTimer = null;
+  if (vaultEncrypted() && state.vaultCryptoKey) {
+    await persistEncryptedNotes(false);
+    return;
+  }
+  persistNow(false);
+}
+
 async function sha256Hex(value) {
   if (!crypto.subtle) {
     throw new Error("Web Crypto SHA-256 indisponible dans ce navigateur.");
@@ -428,7 +472,21 @@ async function sha256Hex(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function cleanEncryptionState(value): VaultEncryptionState {
+  const salt = String(value?.salt || "");
+  return {
+    enabled: Boolean(value?.enabled && salt),
+    algorithm: String(value?.algorithm || "AES-GCM-256"),
+    kdf: String(value?.kdf || "PBKDF2-SHA-256"),
+    iterations: Number.isFinite(Number(value?.iterations)) ? Number(value.iterations) : VAULT_CRYPTO_ITERATIONS,
+    salt,
+    encryptedAt: String(value?.encryptedAt || ""),
+    updatedAt: String(value?.updatedAt || ""),
+  };
+}
+
 function cleanSecurityState(value, forcedVaultId = null) {
+  const encryption = cleanEncryptionState(value?.encryption || null);
   const fallback = {
     version: 1,
     vaultId: forcedVaultId || createVaultId(),
@@ -438,6 +496,7 @@ function cleanSecurityState(value, forcedVaultId = null) {
     tokenRotatedAt: "",
     algorithm: "sha256(vaultId:token)",
     scopes: ["notes:read", "notes:search", "manifest:read", "repo:read", "repo:search"],
+    encryption,
   };
 
   if (!value || typeof value !== "object") return fallback;
@@ -453,6 +512,7 @@ function cleanSecurityState(value, forcedVaultId = null) {
     tokenRotatedAt: String(value.tokenRotatedAt || value.tokenCreatedAt || ""),
     algorithm: String(value.algorithm || fallback.algorithm),
     scopes: Array.isArray(value.scopes) ? [...new Set([...value.scopes.map(String), ...fallback.scopes])] : fallback.scopes,
+    encryption,
   };
 }
 
@@ -469,6 +529,119 @@ function persistSecurityState() {
   touchActiveVault();
 }
 
+function vaultEncrypted() {
+  return Boolean(state.security?.encryption?.enabled);
+}
+
+function vaultLocked() {
+  return vaultEncrypted() && !state.vaultCryptoKey;
+}
+
+function encryptedNotesKey(vaultId = activeVaultId) {
+  return vaultStorageKey("notes-sealed", vaultId);
+}
+
+function requireVaultUnlocked(action = "cette action") {
+  if (!vaultLocked()) return true;
+  toast(`Déverrouille le vault pour ${action}.`);
+  return false;
+}
+
+async function deriveVaultCryptoKey(passphrase: string) {
+  if (!crypto.subtle) throw new Error("Web Crypto indisponible");
+  const salt = state.security.encryption.salt;
+  if (!salt) throw new Error("Sel de chiffrement manquant");
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: base64UrlToBytes(salt),
+      iterations: state.security.encryption.iterations || VAULT_CRYPTO_ITERATIONS,
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+function notesPlainPayload() {
+  return {
+    version: 1,
+    activeId: state.activeId,
+    starredIds: [...state.starredIds],
+    snapshots: state.snapshots,
+    notes: state.notes,
+  };
+}
+
+async function encryptJsonPayload(payload: JsonObject, key: CryptoKey) {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  return {
+    version: 1,
+    format: "povmind-encrypted-notes",
+    algorithm: state.security.encryption.algorithm,
+    kdf: state.security.encryption.kdf,
+    iterations: state.security.encryption.iterations,
+    salt: state.security.encryption.salt,
+    iv: bytesToBase64Url(iv),
+    ciphertext: bytesToBase64Url(new Uint8Array(encrypted)),
+    updatedAt: nowIso(),
+    noteCount: state.notes.length,
+  };
+}
+
+async function decryptJsonPayload(sealed: JsonObject, key: CryptoKey) {
+  const iv = base64UrlToBytes(sealed.iv);
+  const ciphertext = base64UrlToBytes(sealed.ciphertext);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+async function persistEncryptedNotes(showSaved = true) {
+  if (!state.vaultCryptoKey) return;
+  const sealed = await encryptJsonPayload(notesPlainPayload(), state.vaultCryptoKey);
+  localStorage.setItem(encryptedNotesKey(), JSON.stringify(sealed));
+  localStorage.removeItem(vaultStorageKey("notes"));
+  localStorage.removeItem(vaultStorageKey("snapshots"));
+  localStorage.removeItem(vaultStorageKey("starred"));
+  state.security.encryption.updatedAt = sealed.updatedAt;
+  persistSecurityState();
+  if (showSaved) els.savedStatus.textContent = "Chiffré";
+  touchActiveVault();
+}
+
+async function unlockEncryptedVault(passphrase: string) {
+  const raw = localStorage.getItem(encryptedNotesKey());
+  if (!raw) throw new Error("Aucune donnée chiffrée trouvée");
+  const key = await deriveVaultCryptoKey(passphrase);
+  const parsed = await decryptJsonPayload(JSON.parse(raw), key);
+  state.vaultCryptoKey = key;
+  state.vaultUnlocked = true;
+  state.notes = Array.isArray(parsed.notes) ? parsed.notes.map(cleanNote).filter(Boolean) : [];
+  state.activeId = parsed.activeId && state.notes.some((note) => note.id === parsed.activeId)
+    ? parsed.activeId
+    : state.notes[0]?.id || null;
+  state.starredIds = new Set(Array.isArray(parsed.starredIds)
+    ? parsed.starredIds.map(String).filter((id) => state.notes.some((note) => note.id === id))
+    : []);
+  state.snapshots = Array.isArray(parsed.snapshots)
+    ? parsed.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS)
+    : [];
+  if (!state.starredIds.size && state.activeId) state.starredIds.add(state.activeId);
+  persistStarredIds();
+}
+
 function assistantTokenHint(token) {
   return `${token.slice(0, 10)}…${token.slice(-8)}`;
 }
@@ -483,6 +656,14 @@ function securityExportPayload() {
     tokenRotatedAt: state.security.tokenRotatedAt,
     algorithm: state.security.algorithm,
     scopes: state.security.scopes,
+    encryption: {
+      enabled: state.security.encryption.enabled,
+      algorithm: state.security.encryption.algorithm,
+      kdf: state.security.encryption.kdf,
+      iterations: state.security.encryption.iterations,
+      encryptedAt: state.security.encryption.encryptedAt,
+      updatedAt: state.security.encryption.updatedAt,
+    },
   };
 }
 
@@ -523,6 +704,14 @@ function loadSnapshots() {
 }
 
 function persistSnapshots() {
+  if (vaultEncrypted()) {
+    localStorage.removeItem(vaultStorageKey("snapshots"));
+    void persistEncryptedNotes(false).catch((error) => {
+      console.error(error);
+      toast("Sauvegarde chiffrée des snapshots impossible.");
+    });
+    return;
+  }
   localStorage.setItem(vaultStorageKey("snapshots"), JSON.stringify(state.snapshots.slice(0, MAX_SNAPSHOTS), null, 2));
   touchActiveVault();
 }
@@ -918,6 +1107,11 @@ function loadStarredIds(): Set<string> {
 }
 
 function persistStarredIds() {
+  if (vaultEncrypted()) {
+    localStorage.removeItem(vaultStorageKey("starred"));
+    touchActiveVault();
+    return;
+  }
   localStorage.setItem(vaultStorageKey("starred"), JSON.stringify([...state.starredIds]));
   touchActiveVault();
 }
@@ -984,12 +1178,71 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Sécurité et tokens",
       folder: "Documentation PovMind",
-      body: `# PovMind - Sécurité et tokens\n\nL'objectif est de donner à chaque vault une clef solide pour contrôler l'accès des assistants.\n\n## Ce qui est en place\n\n- Chaque vault possède un \`vaultId\` cryptographiquement aléatoire.\n- Le bouton “Nouveau token” génère un token aléatoire \`povm_...\` avec \`crypto.getRandomValues\`.\n- PovMind stocke seulement l'empreinte \`SHA-256(vaultId:token)\`, jamais le secret complet.\n- L'export MCP embarque l'empreinte et le \`vaultId\`; le serveur MCP demande le token via \`POVMIND_VAULT_TOKEN\`.\n- La politique d'accès déclare les scopes \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\` et \`repo:search\`.\n\n## Ce que cela protège\n\nLe bundle MCP ne peut pas être lu par un assistant sans le token correspondant. Le token peut être régénéré depuis PovMind pour invalider l'ancien accès.\n\n## À ajouter plus tard\n\n- Chiffrement at-rest des notes avec Web Crypto AES-GCM.\n- Déverrouillage par passphrase locale.\n- Rotation de tokens par assistant ou par rôle.\n- Journal d'accès côté backend si PovMind devient multi-utilisateur.\n\nVoir [[PovMind - MCP assistant]] et [[PovMind - Auth et multivault]]. #povmind #securite`,
+      body: `# PovMind - Sécurité et tokens\n\nL'objectif est de donner à chaque vault une clef solide pour contrôler l'accès local et l'accès assistant.\n\n## Ce qui est en place\n\n- Chaque vault possède un \`vaultId\` cryptographiquement aléatoire.\n- Le bouton “Nouveau token” génère un token aléatoire \`povm_...\` avec \`crypto.getRandomValues\`.\n- PovMind stocke seulement l'empreinte \`SHA-256(vaultId:token)\`, jamais le secret complet.\n- L'export MCP embarque l'empreinte et le \`vaultId\`; le serveur MCP demande le token via \`POVMIND_VAULT_TOKEN\`.\n- La politique d'accès déclare les scopes \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\` et \`repo:search\`.\n- Le vault peut être chiffré localement avec Web Crypto : passphrase -> PBKDF2-SHA-256 -> clé AES-GCM-256.\n- Quand le chiffrement est actif, les notes sont stockées dans \`povmind:vault:{vaultId}:notes-sealed\` et la clé reste uniquement en mémoire.\n- Le verrouillage efface les notes de l'état UI et retire la clé de session.\n\n## Ce que cela protège\n\nLe bundle MCP ne peut pas être lu par un assistant sans le token correspondant. Les notes locales chiffrées ne sont pas lisibles dans \`localStorage\` sans la passphrase du vault.\n\n## Limites assumées\n\n- La passphrase n'est pas récupérable si elle est perdue.\n- Un export JSON, Codex ou MCP réalisé vault déverrouillé contient volontairement les notes en clair dans le fichier exporté.\n- Les métadonnées non sensibles comme le registre de vaults, certains réglages et l'existence du vault restent locales hors chiffrement.\n- Un navigateur déjà compromis peut lire ce qui est déverrouillé en mémoire.\n\n## À ajouter plus tard\n\n- Rotation de passphrase avec réchiffrement.\n- Tokens par assistant ou par rôle.\n- Journal d'accès côté backend si PovMind devient multi-utilisateur.\n- Mode cloud avec objets chiffrés avant synchronisation.\n\nVoir [[PovMind - MCP assistant]] et [[PovMind - Auth et multivault]]. #povmind #securite`,
     },
     {
       title: "PovMind - Auth et multivault",
       folder: "Documentation PovMind",
-      body: `# PovMind - Auth et multivault\n\nÉtat produit au 2026-05-01 : l'auth assistant est fonctionnelle, le multivault local-first est en place et la sync GitHub est amorcée via Cloud Run/OAuth.\n\n## Déjà en place\n\n- \`vaultId\` cryptographique par vault.\n- Registre local \`povmind:vaults:index\` avec vault actif.\n- Stockage isolé par \`povmind:vault:{vaultId}:...\` pour notes, sécurité, repo, snapshots, GitHub sync, layout et graphe.\n- Sélecteur de vault dans la sidebar : ouvrir, créer, renommer.\n- Migration douce du vault historique vers le premier vault local.\n- Token assistant \`povm_...\` généré côté navigateur.\n- Stockage uniquement de \`SHA-256(vaultId:token)\`.\n- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.\n- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.\n- Snapshots reliés au vault, au commit repo, au \`repoTreeHash\` et à la cible GitHub.\n- Export \`.povmind/\` + \`AGENTS.md\` pour versionner le contexte dans un repo.\n\n## Pas encore en place\n\n- Pas de login utilisateur complet.\n- Pas de backend de comptes et d'équipes.\n- Pas de chiffrement at-rest des notes dans \`localStorage\`.\n- Pas encore de token par assistant, de révocation fine ou de journal d'accès.\n- Pas encore de suppression/restauration de vault avec confirmation forte.\n- Le connecteur GitHub doit encore être configuré en production avec les secrets OAuth.\n\n## Architecture actuelle\n\n\`\`\`txt\npovmind:vaults:index\npovmind:vaults:active\npovmind:vault:{vaultId}:notes\npovmind:vault:{vaultId}:security\npovmind:vault:{vaultId}:repo\npovmind:vault:{vaultId}:snapshots\npovmind:vault:{vaultId}:github-sync\npovmind:vault:{vaultId}:layout\npovmind:vault:{vaultId}:graph-layout\npovmind:vault:{vaultId}:starred\n\`\`\`\n\n## Ordre d'implémentation recommandé\n\n1. Ajouter import “comme nouveau vault”.\n2. Ajouter export complet du registre de vaults.\n3. Ajouter le chiffrement AES-GCM optionnel par vault.\n4. Ajouter les tokens par assistant avec scopes et révocation.\n5. Durcir le connecteur Cloud Run GitHub avec audit log et révocation.\n6. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient multi-appareil.\n\n## Décision produit\n\nLe coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.\n\nVoir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
+      body: `# PovMind - Auth et multivault
+
+État produit au 2026-05-06 : l'auth assistant est fonctionnelle, le multivault local-first est en place, la sync GitHub est amorcée via Cloud Run/OAuth et le chiffrement local du vault est disponible.
+
+## Déjà en place
+
+- \`vaultId\` cryptographique par vault.
+- Registre local \`povmind:vaults:index\` avec vault actif.
+- Stockage isolé par \`povmind:vault:{vaultId}:...\` pour sécurité, repo, GitHub sync, layout et graphe.
+- Notes et snapshots chiffrables localement dans \`povmind:vault:{vaultId}:notes-sealed\`.
+- Sélecteur de vault dans la sidebar : ouvrir, créer, renommer.
+- Migration douce du vault historique vers le premier vault local.
+- Token assistant \`povm_...\` généré côté navigateur.
+- Stockage uniquement de \`SHA-256(vaultId:token)\`.
+- Export MCP verrouillé par \`POVMIND_VAULT_TOKEN\`.
+- Scopes déjà modélisés : \`notes:read\`, \`notes:search\`, \`manifest:read\`, \`repo:read\`, \`repo:search\`.
+- Snapshots reliés au vault, au commit repo, au \`repoTreeHash\` et à la cible GitHub.
+- Export \`.povmind/\` + \`AGENTS.md\` pour versionner le contexte dans un repo.
+
+## Pas encore en place
+
+- Pas de login utilisateur complet.
+- Pas de backend de comptes et d'équipes.
+- Pas encore de token par assistant, de révocation fine ou de journal d'accès.
+- Pas encore de rotation de passphrase avec réchiffrement.
+- Pas encore de suppression/restauration de vault avec confirmation forte.
+- Le connecteur GitHub doit encore être configuré en production avec les secrets OAuth.
+
+## Architecture actuelle
+
+\`\`\`txt
+povmind:vaults:index
+povmind:vaults:active
+povmind:vault:{vaultId}:notes
+povmind:vault:{vaultId}:notes-sealed
+povmind:vault:{vaultId}:security
+povmind:vault:{vaultId}:repo
+povmind:vault:{vaultId}:snapshots
+povmind:vault:{vaultId}:github-sync
+povmind:vault:{vaultId}:layout
+povmind:vault:{vaultId}:graph-layout
+povmind:vault:{vaultId}:starred
+\`\`\`
+
+Quand le chiffrement est actif, \`notes\`, \`snapshots\` et \`starred\` en clair sont retirés et remplacés par \`notes-sealed\`.
+
+## Ordre d'implémentation recommandé
+
+1. Ajouter import “comme nouveau vault”.
+2. Ajouter export complet du registre de vaults.
+3. Ajouter les tokens par assistant avec scopes et révocation.
+4. Ajouter rotation de passphrase et réchiffrement.
+5. Durcir le connecteur Cloud Run GitHub avec audit log et révocation.
+6. Ajouter auth utilisateur Google/GitHub quand la sync cloud devient multi-appareil.
+
+## Décision produit
+
+Le coeur de PovMind doit rester local-first. Le cloud doit synchroniser des vaults verrouillés, pas devenir la source unique de confiance.
+
+Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Backlog contexte]]. #auth #multivault #securite`,
     },
     {
       title: "PovMind - Snapshots du vault",
@@ -1024,12 +1277,50 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Backlog contexte",
       folder: "Documentation PovMind",
-      body: `# PovMind - Backlog contexte\n\nCe backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.\n\n## Fait\n\n- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].\n- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.\n- [x] Ajouter l'export \`.povmind/\` + \`AGENTS.md\` décrit dans [[PovMind - GitHub sync]].\n- [x] Ajouter le scaffold Cloud Run OAuth GitHub sans token longue durée dans le navigateur.\n- [x] Structurer l'interface comme un workbench type Obsidian décrit dans [[PovMind - Interface Obsidian]].\n- [x] Migrer l'entrée applicative vers \`src/app.ts\` avec build TypeScript vers \`app.js\`.\n\n## À prioriser\n\n- [ ] Extraire les modèles \`Note\`, \`Vault\`, \`Snapshot\`, \`SecurityPolicy\` dans des modules TypeScript dédiés.\n- [ ] Configurer les secrets OAuth GitHub sur Cloud Run.\n- [ ] Importer un JSON comme nouveau vault.\n- [ ] Exporter/restaurer tout le registre multivault.\n- [ ] Tester l'export MCP avec un vrai client assistant.\n- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.\n- [ ] Comparer deux snapshots de vault.\n- [ ] Comparer un snapshot et un commit repo.\n- [ ] Ajouter un import/export de bundles MCP.\n- [ ] Ajouter un chiffrement local optionnel des notes.\n- [ ] Ajouter un audit log du connecteur GitHub.\n\n## Questions produit\n\n- Quels assistants ont accès à quel vault ?\n- Faut-il un token par assistant ou un token par vault ?\n- Comment afficher les accès sans rendre l'interface anxiogène ?\n- Quelle partie de PovMind doit rester 100% locale ?\n- Quel niveau de code doit entrer dans le manifeste repo ?\n- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?\n\n#povmind #backlog #contexte`,
+      body: `# PovMind - Backlog contexte
+
+Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouvoir être justifiée par une note, un lien, un export ou une lecture assistant.
+
+## Fait
+
+- [x] Implémenter le Vault Registry local décrit dans [[PovMind - Auth et multivault]].
+- [x] Ajouter un sélecteur de vault : créer, ouvrir, renommer.
+- [x] Ajouter l'export \`.povmind/\` + \`AGENTS.md\` décrit dans [[PovMind - GitHub sync]].
+- [x] Ajouter le scaffold Cloud Run OAuth GitHub sans token longue durée dans le navigateur.
+- [x] Structurer l'interface comme un workbench type Obsidian décrit dans [[PovMind - Interface Obsidian]].
+- [x] Migrer l'entrée applicative vers \`src/app.ts\` avec build TypeScript vers \`app.js\`.
+- [x] Chiffrer localement notes, favoris et snapshots avec AES-GCM via passphrase.
+
+## À prioriser
+
+- [ ] Extraire les modèles \`Note\`, \`Vault\`, \`Snapshot\`, \`SecurityPolicy\` dans des modules TypeScript dédiés.
+- [ ] Configurer les secrets OAuth GitHub sur Cloud Run.
+- [ ] Importer un JSON comme nouveau vault.
+- [ ] Exporter/restaurer tout le registre multivault.
+- [ ] Tester l'export MCP avec un vrai client assistant.
+- [ ] Ajouter un écran de statut pour expliquer ce que le token protège.
+- [ ] Comparer deux snapshots de vault.
+- [ ] Comparer un snapshot et un commit repo.
+- [ ] Ajouter un import/export de bundles MCP.
+- [ ] Ajouter rotation de passphrase et révocation fine par assistant.
+- [ ] Ajouter un audit log du connecteur GitHub.
+
+## Questions produit
+
+- Quels assistants ont accès à quel vault ?
+- Faut-il un token par assistant ou un token par vault ?
+- Comment afficher les accès sans rendre l'interface anxiogène ?
+- Quelle partie de PovMind doit rester 100% locale ?
+- Quel niveau de code doit entrer dans le manifeste repo ?
+- À quel moment l'auth utilisateur devient-elle nécessaire : avant ou après la sync cloud ?
+
+#povmind #backlog #contexte`,
     },
   ];
 }
 
 function ensureDocumentationVault(options: { select?: boolean; silent?: boolean } = {}) {
+  if (vaultLocked()) return;
   const { select = false, silent = false } = options;
   const createdAt = nowIso();
   const created = [];
@@ -1074,6 +1365,15 @@ function ensureDocumentationVault(options: { select?: boolean; silent?: boolean 
 }
 
 function loadStore() {
+  if (vaultEncrypted()) {
+    state.notes = [];
+    state.activeId = null;
+    state.starredIds = new Set<string>();
+    state.snapshots = [];
+    state.vaultUnlocked = Boolean(state.vaultCryptoKey);
+    return;
+  }
+
   const raw = readVaultStoredValue("notes", STORAGE_KEY, LEGACY_STORAGE_KEY);
   if (!raw) {
     state.notes = seedNotes();
@@ -1123,14 +1423,20 @@ function cleanNote(note) {
 }
 
 function persistNow(showSaved = true) {
+  if (vaultLocked()) {
+    els.savedStatus.textContent = "Verrouillé";
+    return;
+  }
+  if (vaultEncrypted()) {
+    void persistEncryptedNotes(showSaved).catch((error) => {
+      console.error(error);
+      toast("Sauvegarde chiffrée impossible.");
+    });
+    return;
+  }
   localStorage.setItem(
     vaultStorageKey("notes"),
-    JSON.stringify({
-      version: 1,
-      activeId: state.activeId,
-      starredIds: [...state.starredIds],
-      notes: state.notes,
-    })
+    JSON.stringify(notesPlainPayload())
   );
   if (showSaved) {
     els.savedStatus.textContent = "Sauvegardé";
@@ -1162,6 +1468,7 @@ function uniqueTitle(baseTitle) {
 }
 
 function createNote(title = "Nouvelle note", body = "", options: { folder?: string } = {}) {
+  if (!requireVaultUnlocked("créer une note")) return null;
   const createdAt = nowIso();
   const note = {
     id: uid(),
@@ -1181,6 +1488,7 @@ function createNote(title = "Nouvelle note", body = "", options: { folder?: stri
 }
 
 function deleteActiveNote() {
+  if (!requireVaultUnlocked("supprimer une note")) return;
   const note = activeNote();
   if (!note) return;
   const ok = confirm(`Supprimer définitivement « ${note.title} » ?`);
@@ -1197,6 +1505,7 @@ function deleteActiveNote() {
 }
 
 function selectNote(id) {
+  if (!requireVaultUnlocked("ouvrir une note")) return;
   if (!state.notes.some((note) => note.id === id)) return;
   state.activeId = id;
   persistNow(false);
@@ -1204,6 +1513,7 @@ function selectNote(id) {
 }
 
 function updateActiveNote(patch) {
+  if (vaultLocked()) return;
   const note = activeNote();
   if (!note) return;
   Object.assign(note, patch, { updatedAt: nowIso() });
@@ -1297,15 +1607,23 @@ function renderVaultStats() {
 
 function renderSecurityPanel() {
   const sealed = Boolean(state.security.tokenHash);
-  els.securityStatus.textContent = sealed ? "Scellé" : "À sceller";
+  const encrypted = vaultEncrypted();
+  const locked = vaultLocked();
+  els.securityStatus.textContent = encrypted ? (locked ? "Verrouillé" : "Chiffré") : sealed ? "Scellé" : "À sceller";
   els.vaultKeyLabel.textContent = state.security.vaultId;
   els.assistantTokenOutput.value = state.assistantToken || "";
   els.assistantTokenOutput.placeholder = sealed
     ? `Token actif : ${state.security.tokenHint || "hash enregistré"}`
     : "Générer un token assistant";
   els.copyTokenBtn.disabled = !state.assistantToken;
-  els.securityExportMcpBtn.disabled = false;
-  els.exportMcpBtn.disabled = false;
+  els.securityExportMcpBtn.disabled = locked;
+  els.exportMcpBtn.disabled = locked;
+  els.exportCodexBtn.disabled = locked;
+  els.exportVaultBtn.disabled = locked;
+  els.vaultLockStatus.textContent = encrypted ? (locked ? "Verrouillé" : "Déverrouillé") : "Non chiffré";
+  els.enableVaultCryptoBtn.disabled = encrypted || locked;
+  els.unlockVaultBtn.disabled = !encrypted || !locked;
+  els.lockVaultBtn.disabled = !encrypted || locked;
 }
 
 function formatSnapshotDate(iso) {
@@ -1322,9 +1640,18 @@ function formatSnapshotDate(iso) {
 }
 
 function renderSnapshotsPanel() {
+  if (vaultLocked()) {
+    els.snapshotCount.textContent = "0";
+    els.snapshotHashLabel.textContent = "Verrouillé";
+    els.createSnapshotBtn.disabled = true;
+    els.exportSnapshotBtn.disabled = true;
+    els.snapshotsList.innerHTML = `<div class="empty-state">Snapshots verrouillés avec les notes du vault.</div>`;
+    return;
+  }
   const latest = latestSnapshot();
   els.snapshotCount.textContent = String(state.snapshots.length);
   els.snapshotHashLabel.textContent = latest ? `${latest.hash.slice(0, 12)}…` : "Aucun";
+  els.createSnapshotBtn.disabled = false;
   els.exportSnapshotBtn.disabled = !latest;
 
   if (!state.snapshots.length) {
@@ -1356,10 +1683,12 @@ function shortHash(value) {
 function renderRepoPanel() {
   const linked = repoIsLinked();
   const repo = cleanRepoState(state.repo);
+  const locked = vaultLocked();
   els.repoStatus.textContent = linked ? "Lié" : "Non lié";
   els.repoNameLabel.textContent = linked ? (repo.name || repo.root || "Repo") : "—";
-  els.exportRepoBtn.disabled = !linked;
-  els.codeRepoNoteBtn.disabled = !linked;
+  els.importRepoBtn.disabled = locked;
+  els.exportRepoBtn.disabled = locked || !linked;
+  els.codeRepoNoteBtn.disabled = locked || !linked;
 
   if (!linked) {
     els.repoMetaLine.textContent = "Importe un manifeste généré depuis le repo.";
@@ -1390,14 +1719,17 @@ function renderRepoPanel() {
 function renderGithubPanel() {
   if (!els.githubStatus) return;
   const sync = cleanGithubSyncState(state.githubSync);
+  const locked = vaultLocked();
   const connected = Boolean(sync.connector.configured && sync.connector.authenticated);
   const configured = Boolean(sync.connector.configured);
   els.githubStatus.textContent = connected ? "Connecté" : configured ? "OAuth prêt" : "Local";
   els.githubRepoInput.value = sync.repoFullName;
   els.githubBranchInput.value = sync.branch;
   els.githubPathInput.value = sync.basePath;
-  els.githubPushBtn.disabled = !sync.repoFullName || !configured;
-  els.githubPullBtn.disabled = !sync.repoFullName || !configured;
+  els.githubPushBtn.disabled = locked || !sync.repoFullName || !configured;
+  els.githubPullBtn.disabled = locked || !sync.repoFullName || !configured;
+  els.exportGithubContextBtn.disabled = locked;
+  els.importGithubContextBtn.disabled = locked;
 
   const last = sync.lastSyncedAt ? ` · sync ${formatDate(sync.lastSyncedAt)}` : "";
   const commit = sync.lastCommit ? ` · ${sync.lastCommit.slice(0, 8)}` : "";
@@ -1410,6 +1742,10 @@ function renderGithubPanel() {
 }
 
 function renderNotesList() {
+  if (vaultLocked()) {
+    els.notesList.innerHTML = `<div class="empty-state">Vault chiffré verrouillé. Entre la passphrase dans Accès assistant.</div>`;
+    return;
+  }
   const notes = filteredNotes();
   if (!notes.length) {
     els.notesList.innerHTML = `<div class="empty-state">Aucune note trouvée. Crée une note ou retire le filtre actif.</div>`;
@@ -1520,12 +1856,39 @@ function renderStarredList() {
 }
 
 function renderActiveNote() {
+  if (vaultLocked()) {
+    els.titleInput.disabled = true;
+    els.folderInput.disabled = true;
+    els.editor.disabled = true;
+    els.starNoteBtn.disabled = true;
+    els.templateBtn.disabled = true;
+    els.exportMdBtn.disabled = true;
+    els.deleteNoteBtn.disabled = true;
+    els.titleInput.value = "Vault verrouillé";
+    els.activeTabTitle.textContent = "Vault verrouillé";
+    els.folderInput.value = "";
+    els.editor.value = "";
+    els.editor.placeholder = "Déverrouille le vault pour lire et éditer les notes.";
+    els.wordCount.textContent = "0 mot";
+    els.savedStatus.textContent = "Verrouillé";
+    els.starNoteBtn.setAttribute("aria-pressed", "false");
+    return;
+  }
   const note = activeNote();
   if (!note) return;
+  els.titleInput.disabled = false;
+  els.folderInput.disabled = false;
+  els.editor.disabled = false;
+  els.starNoteBtn.disabled = false;
+  els.templateBtn.disabled = false;
+  els.exportMdBtn.disabled = false;
+  els.deleteNoteBtn.disabled = false;
+  els.editor.placeholder = "Écris en Markdown. Exemple : [[Accueil]], #tag, **gras**…";
   els.titleInput.value = note.title;
   els.activeTabTitle.textContent = clampText(note.title || "Sans titre", 34);
   els.folderInput.value = normalizeFolder(note.folder);
   els.editor.value = note.body;
+  els.savedStatus.textContent = vaultEncrypted() ? "Chiffré" : "Sauvegardé";
   els.wordCount.textContent = `${countWords(note.body)} ${countWords(note.body) > 1 ? "mots" : "mot"}`;
   els.editorGrid.dataset.view = state.view;
   els.viewModeBtn.textContent = state.view === "split" ? "Split" : state.view === "edit" ? "Éditeur" : "Aperçu";
@@ -1541,6 +1904,10 @@ function countWords(text) {
 }
 
 function renderPreview() {
+  if (vaultLocked()) {
+    els.preview.innerHTML = `<p>Vault chiffré verrouillé. La clé dérivée de la passphrase n'est pas en mémoire.</p>`;
+    return;
+  }
   const note = activeNote();
   if (!note) {
     els.preview.innerHTML = `<p>Aucune note active.</p>`;
@@ -1703,7 +2070,13 @@ function unescapeHtml(value) {
 
 function renderBacklinks() {
   const note = activeNote();
-  if (!note) return;
+  if (!note) {
+    els.backlinkCount.textContent = "0";
+    els.backlinks.innerHTML = vaultLocked()
+      ? `<div class="empty-state">Backlinks verrouillés avec les notes du vault.</div>`
+      : `<div class="empty-state">Aucune note active.</div>`;
+    return;
+  }
   const wanted = normalizeTitle(note.title);
   const backlinks = state.notes.filter((candidate) => {
     if (candidate.id === note.id) return false;
@@ -1984,6 +2357,7 @@ function openGraphNode(nodeId, title) {
   if (nodeId.startsWith("missing:")) {
     const previousPosition = state.graphRuntimePositions[nodeId] || state.graphPositions[nodeId];
     const note = createNote(cleanTitle, `# ${cleanTitle}\n\n`);
+    if (!note) return;
     if (previousPosition) {
       state.graphPositions[note.id] = previousPosition;
       delete state.graphPositions[nodeId];
@@ -2152,6 +2526,99 @@ async function copyAssistantToken() {
     document.execCommand("copy");
     toast("Token sélectionné.");
   }
+}
+
+function currentVaultPassphrase() {
+  return String(els.vaultPassphraseInput.value || "");
+}
+
+function clearVaultPassphrase() {
+  els.vaultPassphraseInput.value = "";
+}
+
+async function enableVaultEncryption() {
+  if (vaultEncrypted()) {
+    toast("Ce vault est déjà chiffré.");
+    return;
+  }
+  const passphrase = currentVaultPassphrase();
+  if (passphrase.length < 10) {
+    toast("Choisis une passphrase d'au moins 10 caractères.");
+    return;
+  }
+  try {
+    const now = nowIso();
+    state.security.encryption = {
+      enabled: true,
+      algorithm: "AES-GCM-256",
+      kdf: "PBKDF2-SHA-256",
+      iterations: VAULT_CRYPTO_ITERATIONS,
+      salt: randomBase64Url(16),
+      encryptedAt: now,
+      updatedAt: now,
+    };
+    state.vaultCryptoKey = await deriveVaultCryptoKey(passphrase);
+    state.vaultUnlocked = true;
+    await persistEncryptedNotes(true);
+    clearVaultPassphrase();
+    renderSecurityPanel();
+    toast("Vault chiffré localement. La clé reste en mémoire jusqu'au verrouillage.");
+  } catch (error) {
+    console.error(error);
+    state.security.encryption = cleanEncryptionState(null);
+    state.vaultCryptoKey = null;
+    state.vaultUnlocked = false;
+    persistSecurityState();
+    renderSecurityPanel();
+    toast("Chiffrement impossible : Web Crypto indisponible.");
+  }
+}
+
+async function unlockVault() {
+  if (!vaultEncrypted()) {
+    toast("Ce vault n'est pas encore chiffré.");
+    return;
+  }
+  if (!vaultLocked()) {
+    toast("Vault déjà déverrouillé.");
+    return;
+  }
+  const passphrase = currentVaultPassphrase();
+  if (!passphrase) {
+    toast("Entre la passphrase du vault.");
+    return;
+  }
+  try {
+    await unlockEncryptedVault(passphrase);
+    clearVaultPassphrase();
+    renderAll();
+    toast("Vault déverrouillé.");
+  } catch (error) {
+    console.warn("Déverrouillage du vault refusé.", error);
+    state.vaultCryptoKey = null;
+    state.vaultUnlocked = false;
+    renderSecurityPanel();
+    toast("Passphrase invalide ou vault chiffré illisible.");
+  }
+}
+
+async function lockVault() {
+  if (!vaultEncrypted()) {
+    toast("Ce vault n'est pas chiffré.");
+    return;
+  }
+  if (state.vaultCryptoKey) {
+    await persistEncryptedNotes(false).catch((error) => console.error(error));
+  }
+  state.vaultCryptoKey = null;
+  state.vaultUnlocked = false;
+  state.notes = [];
+  state.activeId = null;
+  state.starredIds = new Set<string>();
+  state.snapshots = [];
+  clearVaultPassphrase();
+  renderAll();
+  toast("Vault verrouillé.");
 }
 
 async function ensureAssistantTokenForExport() {
@@ -3322,6 +3789,7 @@ function buildSnapshotContent(createdAt) {
 }
 
 async function createVaultSnapshot(options: { silent?: boolean } = {}) {
+  if (!requireVaultUnlocked("créer un snapshot")) return null;
   persistNow(false);
   const createdAt = nowIso();
   const content = buildSnapshotContent(createdAt);
@@ -3365,6 +3833,7 @@ async function exportSnapshot(snapshotId = null) {
 }
 
 function exportCodexKnowledgeBase() {
+  if (!requireVaultUnlocked("exporter la base Codex")) return;
   persistNow(false);
   const { context, files } = buildCodexFiles();
   const zipBytes = createZipArchive(files);
@@ -3374,6 +3843,7 @@ function exportCodexKnowledgeBase() {
 }
 
 async function exportMcpBundle() {
+  if (!requireVaultUnlocked("exporter le bundle MCP")) return;
   persistNow(false);
   await ensureAssistantTokenForExport();
   if (!state.security.tokenHash) return;
@@ -3423,6 +3893,7 @@ async function refreshGithubStatus() {
 }
 
 async function exportGithubContextBundle(showToast = true) {
+  if (!requireVaultUnlocked("exporter le contexte GitHub")) return null;
   syncGithubSettingsFromInputs();
   const snapshot = await createVaultSnapshot({ silent: true });
   const { context, files } = buildPovmindContextFiles(snapshot);
@@ -3450,6 +3921,7 @@ async function connectGithub() {
 }
 
 async function pushGithubContext() {
+  if (!requireVaultUnlocked("pousser le contexte GitHub")) return;
   syncGithubSettingsFromInputs();
   if (!state.githubSync.repoFullName) {
     toast("Renseigne un repo GitHub owner/repo.");
@@ -3490,6 +3962,7 @@ async function pushGithubContext() {
 }
 
 async function pullGithubContext() {
+  if (!requireVaultUnlocked("tirer le contexte GitHub")) return;
   syncGithubSettingsFromInputs();
   if (!state.githubSync.repoFullName) {
     toast("Renseigne un repo GitHub owner/repo.");
@@ -3528,6 +4001,7 @@ async function pullGithubContext() {
 }
 
 function exportVault() {
+  if (!requireVaultUnlocked("exporter le vault")) return;
   persistNow(false);
   const payload = {
     version: 1,
@@ -3546,6 +4020,7 @@ function exportVault() {
 }
 
 function exportMarkdown() {
+  if (!requireVaultUnlocked("exporter la note")) return;
   const note = activeNote();
   if (!note) return;
   downloadFile(`${safeFilename(note.title)}.md`, note.body || "", "text/markdown;charset=utf-8");
@@ -3554,6 +4029,10 @@ function exportMarkdown() {
 
 async function importRepoManifest(file) {
   if (!file) return;
+  if (!requireVaultUnlocked("importer un manifest repo")) {
+    els.repoManifestInput.value = "";
+    return;
+  }
   try {
     const parsed = JSON.parse(await file.text());
     const manifest = cleanRepoState({
@@ -3586,6 +4065,7 @@ function exportRepoManifest() {
 }
 
 function ensureCodeRepoNote() {
+  if (!requireVaultUnlocked("créer la note code repo")) return null;
   if (!repoIsLinked()) {
     toast("Importe d'abord un manifest repo.");
     return null;
@@ -3657,6 +4137,7 @@ function normalizeVaultImportPayload(parsed) {
 }
 
 function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
+  if (!requireVaultUnlocked("importer un contexte")) return;
   const payload = normalizeVaultImportPayload(parsed);
   if (!payload.notes.length) throw new Error("Aucune note valide");
 
@@ -3678,7 +4159,11 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
       persistLayoutSettings();
     }
     if (payload.security) {
-      state.security = cleanSecurityState(payload.security, activeVaultId);
+      const currentEncryption = state.security.encryption;
+      state.security = {
+        ...cleanSecurityState(payload.security, activeVaultId),
+        encryption: currentEncryption,
+      };
       state.assistantToken = "";
       persistSecurityState();
     }
@@ -3817,7 +4302,9 @@ function loadActiveVaultState() {
   state.graphClickSuppressed = false;
   state.security = loadSecurityState();
   state.assistantToken = "";
-  state.snapshots = loadSnapshots();
+  state.vaultCryptoKey = null;
+  state.vaultUnlocked = false;
+  state.snapshots = vaultEncrypted() ? [] : loadSnapshots();
   state.repo = loadRepoState();
   state.githubSync = loadGithubSyncState();
   els.searchInput.value = "";
@@ -3826,9 +4313,9 @@ function loadActiveVaultState() {
   applyLayoutSettings();
 }
 
-function switchVault(vaultId) {
+async function switchVault(vaultId) {
   if (!vaultRegistry.vaults.some((vault) => vault.id === vaultId) || vaultId === activeVaultId) return;
-  persistNow(false);
+  await persistActiveVaultBeforeLeaving();
   activeVaultId = vaultId;
   vaultRegistry.activeId = vaultId;
   persistVaultRegistry();
@@ -3837,9 +4324,9 @@ function switchVault(vaultId) {
   toast(`Vault ouvert : ${activeVaultRecord()?.name || "PovMind"}.`);
 }
 
-function createVaultWithName(rawName) {
+async function createVaultWithName(rawName) {
   const name = cleanVaultName(rawName, `Vault ${vaultRegistry.vaults.length + 1}`);
-  persistNow(false);
+  await persistActiveVaultBeforeLeaving();
   const id = createVaultId();
   const createdAt = nowIso();
   vaultRegistry.vaults.unshift({
@@ -3895,7 +4382,7 @@ function confirmVaultDialog() {
   if (mode === "rename") {
     renameActiveVaultToName(value);
   } else {
-    createVaultWithName(value);
+    void createVaultWithName(value);
   }
 }
 
@@ -3939,6 +4426,7 @@ function createNoteFromTemplate(templateId) {
 }
 
 function createDailyNote() {
+  if (!requireVaultUnlocked("ouvrir le journal")) return null;
   const template = NOTE_TEMPLATES.find((item) => item.id === "daily");
   const title = `Journal - ${formatLocalDate()}`;
   const existing = state.notes.find((note) => normalizeFolder(note.folder) === "Journal" && normalizeTitle(note.title) === normalizeTitle(title));
@@ -4320,6 +4808,7 @@ function toast(message) {
 }
 
 function resetDemo() {
+  if (!requireVaultUnlocked("réinitialiser le vault")) return;
   const ok = confirm("Réinitialiser le carnet avec les notes de démonstration ? Les notes actuelles seront remplacées.");
   if (!ok) return;
   state.notes = seedNotes();
@@ -4432,6 +4921,15 @@ function bindEvents() {
   els.generateTokenBtn.addEventListener("click", () => generateAssistantToken());
   els.copyTokenBtn.addEventListener("click", copyAssistantToken);
   els.securityExportMcpBtn.addEventListener("click", exportMcpBundle);
+  els.enableVaultCryptoBtn.addEventListener("click", enableVaultEncryption);
+  els.unlockVaultBtn.addEventListener("click", unlockVault);
+  els.lockVaultBtn.addEventListener("click", lockVault);
+  els.vaultPassphraseInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (vaultLocked()) unlockVault();
+    else if (!vaultEncrypted()) enableVaultEncryption();
+  });
   els.importBtn.addEventListener("click", () => els.importInput.click());
   els.importInput.addEventListener("change", (event) => importVault(event.target.files?.[0]));
 
@@ -4494,6 +4992,7 @@ function bindEvents() {
     event.preventDefault();
     const title = link.dataset.noteTitle;
     const note = findNoteByTitle(title) || createNote(title, `# ${title}\n\n`);
+    if (!note) return;
     selectNote(note.id);
   });
 
@@ -4502,6 +5001,7 @@ function bindEvents() {
     if (!link) return;
     const title = link.dataset.noteTitle;
     const note = findNoteByTitle(title) || createNote(title, `# ${title}\n\n`);
+    if (!note) return;
     selectNote(note.id);
   });
 
