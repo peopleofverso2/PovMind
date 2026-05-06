@@ -4,6 +4,32 @@ const fs = require("fs");
 const path = require("path");
 const pkg = require("./package.json");
 
+// node-postgres for the optional Cloud SQL bridge to povchat-db.
+// Required only when DATABASE_URL is set; otherwise the vault sync endpoints
+// return 503 and the rest of the server keeps working as before.
+let pgPool = null;
+let pgPoolError = null;
+function getPgPool() {
+  if (!process.env.DATABASE_URL) return null;
+  if (pgPool) return pgPool;
+  if (pgPoolError) return null;
+  try {
+    const { Pool } = require("pg");
+    pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    pgPool.on("error", (err) => console.error("[pg] pool error:", err.message));
+  } catch (err) {
+    pgPoolError = err;
+    console.error("[pg] failed to init pool:", err.message);
+    return null;
+  }
+  return pgPool;
+}
+
 const root = __dirname;
 const port = Number(process.env.PORT || 8080);
 const host = "0.0.0.0";
@@ -15,6 +41,132 @@ const githubTokenKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY || "";
 const githubStateCookie = "povmind_gh_state";
 const githubTokenCookie = "povmind_gh_token";
 const maxJsonBodyBytes = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
+
+// Optional shared secret for /api/vaults/* endpoints. When set, callers must
+// send `Authorization: Bearer <token>` with the matching value.
+const vaultSyncToken = process.env.VAULT_SYNC_TOKEN || "";
+
+function vaultAuthorized(req) {
+  if (!vaultSyncToken) return true; // dev mode — open
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Bearer ")) return false;
+  const provided = header.slice(7).trim();
+  if (provided.length !== vaultSyncToken.length) return false;
+  // Constant-time compare to avoid timing leaks
+  return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(vaultSyncToken));
+}
+
+function slugifyTitle(title) {
+  return String(title || "untitled")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "untitled";
+}
+
+function extractWikilinks(body) {
+  const links = new Set();
+  const re = /\[\[([^\]]+?)\]\]/g;
+  let m;
+  while ((m = re.exec(body || "")) !== null) {
+    const target = m[1].split("|")[0].trim();
+    if (target) links.add(slugifyTitle(target));
+  }
+  return Array.from(links);
+}
+
+async function upsertVaultSnapshot(snapshot) {
+  const pool = getPgPool();
+  if (!pool) throw new Error("Cloud SQL pool not initialized — set DATABASE_URL");
+
+  const vaultId = String(snapshot.vaultId || snapshot.id || "").trim();
+  if (!vaultId) throw new Error("vaultId required");
+  const name = String(snapshot.name || vaultId);
+  const ownerEmail = snapshot.ownerEmail ? String(snapshot.ownerEmail) : null;
+  const manifest = snapshot.manifest && typeof snapshot.manifest === "object" ? snapshot.manifest : null;
+  const notes = Array.isArray(snapshot.notes) ? snapshot.notes : [];
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO vaults (id, owner_email, name, manifest, last_synced_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         owner_email = EXCLUDED.owner_email,
+         name = EXCLUDED.name,
+         manifest = EXCLUDED.manifest,
+         last_synced_at = NOW(),
+         updated_at = NOW()`,
+      [vaultId, ownerEmail, name, manifest],
+    );
+
+    // Replace strategy for MVP: delete then insert. Small datasets, simpler
+    // than a per-note diff. Move to row-level upsert later if needed.
+    await client.query("DELETE FROM vault_notes WHERE vault_id = $1", [vaultId]);
+
+    for (const note of notes) {
+      const title = String(note.title || "untitled");
+      const slug = String(note.slug || slugifyTitle(title));
+      const body = String(note.body || "");
+      const tags = Array.isArray(note.tags) ? note.tags.map(String) : [];
+      const links = Array.isArray(note.links) && note.links.length
+        ? note.links.map(String)
+        : extractWikilinks(body);
+      await client.query(
+        `INSERT INTO vault_notes (vault_id, slug, title, body, tags, links, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (vault_id, slug) DO UPDATE SET
+           title = EXCLUDED.title,
+           body = EXCLUDED.body,
+           tags = EXCLUDED.tags,
+           links = EXCLUDED.links,
+           updated_at = NOW()`,
+        [vaultId, slug, title, body, tags, links],
+      );
+    }
+
+    await client.query("COMMIT");
+    return { vaultId, noteCount: notes.length };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function fetchVault(vaultId) {
+  const pool = getPgPool();
+  if (!pool) throw new Error("Cloud SQL pool not initialized — set DATABASE_URL");
+  const meta = await pool.query("SELECT id, owner_email, name, manifest, last_synced_at FROM vaults WHERE id = $1", [vaultId]);
+  if (!meta.rowCount) return null;
+  const notes = await pool.query(
+    "SELECT slug, title, body, tags, links, updated_at FROM vault_notes WHERE vault_id = $1 ORDER BY updated_at DESC",
+    [vaultId],
+  );
+  return {
+    vaultId,
+    name: meta.rows[0].name,
+    ownerEmail: meta.rows[0].owner_email,
+    manifest: meta.rows[0].manifest,
+    lastSyncedAt: meta.rows[0].last_synced_at,
+    notes: notes.rows,
+  };
+}
+
+async function listVaults() {
+  const pool = getPgPool();
+  if (!pool) throw new Error("Cloud SQL pool not initialized — set DATABASE_URL");
+  const r = await pool.query(
+    `SELECT v.id, v.name, v.owner_email, v.last_synced_at,
+            (SELECT COUNT(*) FROM vault_notes vn WHERE vn.vault_id = v.id) AS note_count
+     FROM vaults v ORDER BY v.last_synced_at DESC`,
+  );
+  return r.rows;
+}
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -513,6 +665,72 @@ async function routeResponse(req, res) {
       return true;
     }
     await handleGithubCallback(req, res, url);
+    return true;
+  }
+
+  // === Vault sync (PovMind <-> povchat shared Cloud SQL) ===
+  if (url.pathname === "/api/vaults/sync") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { ...securityHeaders, Allow: "POST" });
+      res.end();
+      return true;
+    }
+    if (!vaultAuthorized(req)) {
+      writeJson(res, 401, { ok: false, error: "unauthorized" });
+      return true;
+    }
+    if (!getPgPool()) {
+      writeJson(res, 503, { ok: false, error: "db_not_configured", message: "Set DATABASE_URL on Cloud Run." });
+      return true;
+    }
+    try {
+      const body = await parseJsonBody(req);
+      const result = await upsertVaultSnapshot(body);
+      writeJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      console.error("[vault-sync] error:", err);
+      writeJson(res, err.statusCode || 400, { ok: false, error: err.message });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/vaults") {
+    if (req.method !== "GET") {
+      res.writeHead(405, { ...securityHeaders, Allow: "GET" });
+      res.end();
+      return true;
+    }
+    if (!vaultAuthorized(req)) { writeJson(res, 401, { ok: false, error: "unauthorized" }); return true; }
+    if (!getPgPool()) { writeJson(res, 503, { ok: false, error: "db_not_configured" }); return true; }
+    try {
+      const list = await listVaults();
+      writeJson(res, 200, { ok: true, vaults: list });
+    } catch (err) {
+      console.error("[vaults-list] error:", err);
+      writeJson(res, 500, { ok: false, error: err.message });
+    }
+    return true;
+  }
+
+  // GET /api/vaults/:id/pull
+  const pullMatch = /^\/api\/vaults\/([^/]+)\/pull$/.exec(url.pathname);
+  if (pullMatch) {
+    if (req.method !== "GET") {
+      res.writeHead(405, { ...securityHeaders, Allow: "GET" });
+      res.end();
+      return true;
+    }
+    if (!vaultAuthorized(req)) { writeJson(res, 401, { ok: false, error: "unauthorized" }); return true; }
+    if (!getPgPool()) { writeJson(res, 503, { ok: false, error: "db_not_configured" }); return true; }
+    try {
+      const vaultId = decodeURIComponent(pullMatch[1]);
+      const v = await fetchVault(vaultId);
+      if (!v) { writeJson(res, 404, { ok: false, error: "vault_not_found" }); return true; }
+      writeJson(res, 200, { ok: true, vault: v });
+    } catch (err) {
+      console.error("[vault-pull] error:", err);
+      writeJson(res, 500, { ok: false, error: err.message });
+    }
     return true;
   }
 

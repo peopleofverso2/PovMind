@@ -16,6 +16,9 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   }
