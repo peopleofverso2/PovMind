@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.7.2";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -1380,16 +1380,23 @@ function renderFolderFilters() {
     return;
   }
 
-  const clear = state.folderFilter
-    ? `<button class="folder-chip active" type="button" data-folder-clear="true">Tous ×</button>`
-    : "";
+  const clearActive = state.folderFilter ? "" : " active";
+  const clear = `
+    <button class="folder-chip folder-chip-all${clearActive}" type="button" data-folder-clear="true">
+      <span class="folder-chip-label">Tous</span>
+      <small>${state.notes.length}</small>
+    </button>`;
 
   els.folderFilters.innerHTML =
     clear +
     folders
       .map(([folder, count]) => {
         const active = folder === state.folderFilter ? " active" : "";
-        return `<button class="folder-chip${active}" type="button" data-folder="${attr(folder)}">${escapeHtml(folder)} <small>${count}</small></button>`;
+        return `
+          <button class="folder-chip${active}" type="button" data-folder="${attr(folder)}" title="${attr(folder)}">
+            <span class="folder-chip-label">${escapeHtml(folder)}</span>
+            <small>${count}</small>
+          </button>`;
       })
       .join("");
 }

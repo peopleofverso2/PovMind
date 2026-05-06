@@ -1627,6 +1627,75 @@ button:disabled {
   background: #303030;
 }
 
+.folder-filters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  max-height: 150px;
+  overflow: auto;
+  padding: 1px 0;
+}
+
+.folder-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 780;
+  text-align: left;
+}
+
+.folder-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-chip:not(.folder-chip-all) .folder-chip-label::before {
+  content: "▸";
+  margin-right: 6px;
+  color: var(--muted-2);
+  font-size: 0.78rem;
+}
+
+.folder-chip small {
+  min-width: 24px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #303030;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-align: center;
+}
+
+.folder-chip:hover {
+  border-color: transparent;
+  background: #2a2a2a;
+  color: var(--ink);
+}
+
+.folder-chip.active {
+  border-color: transparent;
+  background: #303030;
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.folder-chip.active small {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
 .vault-stats {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
