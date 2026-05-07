@@ -9,7 +9,7 @@ COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --chown=node:node server.js ./
-COPY --chown=node:node index.html styles.css app.js sw.js manifest.json robots.txt sitemap.xml sync.html sync.js auto-sync.js ./
+COPY --chown=node:node index.html styles.css app.js sw.js manifest.json robots.txt sitemap.xml sync.html sync.js auto-sync.js import.html import.js ./
 COPY --chown=node:node assets ./assets
 
 USER node
