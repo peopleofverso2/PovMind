@@ -49,6 +49,7 @@
     // older versions stored the raw array. Handle both, skip if encrypted.
     const raw = read(`povmind:vault:${vaultId}:notes`, null);
     let notes;
+    let activeId = null;
     if (raw === null) {
       if (localStorage.getItem(`povmind:vault:${vaultId}:notes-sealed`)) return null;
       notes = [];
@@ -56,9 +57,14 @@
       notes = raw;
     } else if (raw && Array.isArray(raw.notes)) {
       notes = raw.notes;
+      activeId = raw.activeId || null;
     } else {
       return null;
     }
+
+    // Currently-focused note slug → povchat uses this to prioritize context.
+    const activeNote = activeId ? notes.find((n) => n && n.id === activeId) : null;
+    const activeSlug = activeNote ? slugify(activeNote.title || "") : null;
 
     // Registry shape: { activeId, vaults: [...] }
     const registryRaw = read(REGISTRY_KEY, null);
@@ -69,6 +75,28 @@
     const security = read(`povmind:vault:${vaultId}:security`, null);
     const repo = read(`povmind:vault:${vaultId}:repo`, null);
 
+    const cleanNotes = notes.map((n) => {
+      const body = n.body || "";
+      const tagSet = new Set(Array.isArray(n.tags) ? n.tags : []);
+      const tagRe = /(?:^|\s)#([\p{L}\p{N}_-]+)/gu;
+      let m;
+      while ((m = tagRe.exec(body)) !== null) tagSet.add(m[1]);
+      const linkSet = new Set(Array.isArray(n.links) ? n.links : []);
+      const wlRe = /\[\[([^\]]+?)\]\]/g;
+      let w;
+      while ((w = wlRe.exec(body)) !== null) {
+        const target = w[1].split("|")[0].trim();
+        if (target) linkSet.add(slugify(target));
+      }
+      return {
+        slug: n.slug || (n.title ? slugify(n.title) : "untitled"),
+        title: n.title || "Untitled",
+        body,
+        tags: Array.from(tagSet),
+        links: Array.from(linkSet),
+      };
+    });
+
     return {
       vaultId,
       name: meta.name || vaultId,
@@ -77,14 +105,9 @@
         scopes: (security && security.scopes) || null,
         repo: repo || null,
         registryEntry: meta || null,
+        activeSlug, // → povchat prioritizes this note + 1-hop wikilinks as context
       },
-      notes: notes.map((n) => ({
-        slug: n.slug || (n.title ? slugify(n.title) : "untitled"),
-        title: n.title || "Untitled",
-        body: n.body || "",
-        tags: Array.isArray(n.tags) ? n.tags : [],
-        links: Array.isArray(n.links) ? n.links : [],
-      })),
+      notes: cleanNotes,
     };
   }
 
@@ -110,7 +133,12 @@
     const snapshot = buildSnapshot(vaultId);
     if (!snapshot) return;
 
-    const fingerprint = JSON.stringify(snapshot.notes);
+    // Include activeSlug in the fingerprint so a focus change (user opens a
+    // different note in PovMind) triggers a sync, not just note edits.
+    const fingerprint = JSON.stringify({
+      notes: snapshot.notes,
+      activeSlug: snapshot.manifest && snapshot.manifest.activeSlug,
+    });
     const hash = await sha256(fingerprint);
     if (hash === lastSyncedHash) return;
     if (hash === localStorage.getItem(LAST_HASH_KEY)) {

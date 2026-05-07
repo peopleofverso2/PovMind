@@ -42,6 +42,7 @@
     // Older formats may have used a raw array. Handle both.
     const raw = readJson(vaultKey(vaultId, "notes"), null);
     let notes;
+    let activeId = null;
     if (raw === null) {
       // Possible reasons: vault is encrypted (notes were moved to :notes-sealed)
       // OR the vault is brand-new with nothing saved yet.
@@ -54,9 +55,15 @@
       notes = raw;
     } else if (raw && Array.isArray(raw.notes)) {
       notes = raw.notes;
+      activeId = raw.activeId || null;
     } else {
       throw new Error("Format inattendu sous povmind:vault:" + vaultId + ":notes — ouvre une issue avec un export du localStorage.");
     }
+
+    // Resolve the user's currently-focused note slug so povchat can prioritize it
+    // as conversation context.
+    const activeNote = activeId ? notes.find((n) => n && n.id === activeId) : null;
+    const activeSlug = activeNote ? slugify(activeNote.title || "") : null;
     // Registry shape: { activeId, vaults: [...] }
     const registryRaw = readJson("povmind:vaults:index", null);
     const vaults = registryRaw && typeof registryRaw === "object" && Array.isArray(registryRaw.vaults)
@@ -66,13 +73,30 @@
     const security = readJson(vaultKey(vaultId, "security"), null);
     const repo = readJson(vaultKey(vaultId, "repo"), null);
 
-    const cleanNotes = notes.map((n) => ({
-      slug: n.slug || (n.title ? slugify(n.title) : "untitled"),
-      title: n.title || "Untitled",
-      body: n.body || "",
-      tags: Array.isArray(n.tags) ? n.tags : [],
-      links: Array.isArray(n.links) ? n.links : [],
-    }));
+    const cleanNotes = notes.map((n) => {
+      const body = n.body || "";
+      // Inline #tags in the body — extracted client-side so the server has them
+      // even though PovMind doesn't store a tags field on Note.
+      const tagSet = new Set(Array.isArray(n.tags) ? n.tags : []);
+      const tagRe = /(?:^|\s)#([\p{L}\p{N}_-]+)/gu;
+      let m;
+      while ((m = tagRe.exec(body)) !== null) tagSet.add(m[1]);
+      // Wikilinks → slug refs.
+      const linkSet = new Set(Array.isArray(n.links) ? n.links : []);
+      const wlRe = /\[\[([^\]]+?)\]\]/g;
+      let w;
+      while ((w = wlRe.exec(body)) !== null) {
+        const target = w[1].split("|")[0].trim();
+        if (target) linkSet.add(slugify(target));
+      }
+      return {
+        slug: n.slug || (n.title ? slugify(n.title) : "untitled"),
+        title: n.title || "Untitled",
+        body,
+        tags: Array.from(tagSet),
+        links: Array.from(linkSet),
+      };
+    });
 
     return {
       vaultId,
@@ -83,6 +107,7 @@
         scopes: (security && security.scopes) || null,
         repo: repo || null,
         registryEntry: meta || null,
+        activeSlug, // → povchat prioritizes this note + its wikilink graph as context
       },
       notes: cleanNotes,
     };
