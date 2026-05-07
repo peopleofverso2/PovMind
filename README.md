@@ -123,6 +123,7 @@ git push -u origin main
 - Token assistant crypto par vault : secret généré en navigateur, empreinte SHA-256 stockée.
 - Export du carnet complet en JSON.
 - Import/fusion d'un carnet JSON.
+- Import de dossier Obsidian en nouveau vault local : fichiers `.md`, dossiers, liens wiki, alias et embeds de notes.
 - Export Markdown de la note active.
 - Export Codex KB en `.zip` avec `AGENTS.md`, `knowledge/INDEX.md`, `knowledge/notes/*.md`, `manifest.json` et `graph.json`.
 - Export MCP sécurisé en `.zip` avec serveur stdio Node, ressources, outils et accès par `POVMIND_VAULT_TOKEN`.

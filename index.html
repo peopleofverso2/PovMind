@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.9.1" />
+  <meta name="povmind-version" content="0.10.0" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.9.1" />
+  <link rel="stylesheet" href="styles.css?v=0.10.0" />
 </head>
 <body>
   <div class="app-shell">
@@ -72,6 +72,8 @@
         <button id="commandPaletteBtn" class="ghost-btn" type="button">Commandes</button>
         <button id="importBtn" class="ghost-btn" type="button">Importer</button>
         <input id="importInput" type="file" accept="application/json,.json" hidden />
+        <button id="importObsidianBtn" class="ghost-btn" type="button">Obsidian</button>
+        <input id="obsidianInput" type="file" accept=".md,text/markdown,text/plain" webkitdirectory directory multiple hidden />
       </div>
 
       <label class="search-box">
@@ -324,7 +326,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.9.1"></script>
+  <script src="app.js?v=0.10.0"></script>
   <script src="auto-sync.js"></script>
 </body>
 </html>

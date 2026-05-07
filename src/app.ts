@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.10.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -21,6 +21,7 @@ const MAX_SNAPSHOTS = 24;
 const MAX_REPO_FILES_RENDERED = 8;
 const VAULT_CRYPTO_ITERATIONS = 310000;
 const ROOT_FOLDER = "Racine";
+const OBSIDIAN_IGNORED_DIRS = new Set([".obsidian", ".git", ".trash", ".stfolder", "node_modules"]);
 
 type JsonObject = Record<string, any>;
 
@@ -177,6 +178,8 @@ const els: Record<string, any> = {
   docVaultBtn: document.getElementById("docVaultBtn"),
   importBtn: document.getElementById("importBtn"),
   importInput: document.getElementById("importInput"),
+  importObsidianBtn: document.getElementById("importObsidianBtn"),
+  obsidianInput: document.getElementById("obsidianInput"),
   searchInput: document.getElementById("searchInput"),
   tagFilters: document.getElementById("tagFilters"),
   notesList: document.getElementById("notesList"),
@@ -951,6 +954,33 @@ function normalizeFolder(folder) {
   return String(folder || ROOT_FOLDER).trim().replace(/\s+/g, " ") || ROOT_FOLDER;
 }
 
+function normalizePathKey(path) {
+  return String(path || "")
+    .replaceAll("\\", "/")
+    .replace(/\.md$/i, "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("fr-FR");
+}
+
+function decodeObsidianPath(value) {
+  const text = String(value || "").replaceAll("\\", "/").trim();
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+function stripMarkdownExtension(value) {
+  return String(value || "").replace(/\.md$/i, "");
+}
+
+function basenameWithoutMarkdown(path) {
+  const cleanPath = stripMarkdownExtension(decodeObsidianPath(path).replaceAll("\\", "/"));
+  return cleanPath.split("/").filter(Boolean).pop() || "Sans titre";
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1168,7 +1198,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Architecture",
       folder: "Documentation PovMind",
-      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS avec un coeur TypeScript compile en JavaScript navigateur. Elle reste servie comme un vault statique local-first.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`src/app.ts\` : source TypeScript du modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`app.js\` : fichier généré par \`npm run build\` et chargé par le navigateur.\n- \`tsconfig.json\` : configuration de compilation TypeScript vers un bundle navigateur sans framework.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions avec build TypeScript.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\n## Frontières TypeScript\n\nLes premiers types couvrent \`Note\`, \`VaultRegistry\`, \`SecurityState\`, \`VaultSnapshot\`, \`LayoutSettings\` et \`AppState\`. La prochaine étape est d'extraire ces modèles dans des modules dédiés.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture #typescript`,
+      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS avec un coeur TypeScript compile en JavaScript navigateur. Elle reste servie comme un vault statique local-first.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`src/app.ts\` : source TypeScript du modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`app.js\` : fichier généré par \`npm run build\` et chargé par le navigateur.\n- \`tsconfig.json\` : configuration de compilation TypeScript vers un bundle navigateur sans framework.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions avec build TypeScript.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Import Obsidian depuis un dossier local, export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\n## Frontières TypeScript\n\nLes premiers types couvrent \`Note\`, \`VaultRegistry\`, \`SecurityState\`, \`VaultSnapshot\`, \`LayoutSettings\` et \`AppState\`. La prochaine étape est d'extraire ces modèles dans des modules dédiés.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture #typescript`,
     },
     {
       title: "PovMind - Interface Obsidian",
@@ -1290,6 +1320,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Structurer l'interface comme un workbench type Obsidian décrit dans [[PovMind - Interface Obsidian]].
 - [x] Migrer l'entrée applicative vers \`src/app.ts\` avec build TypeScript vers \`app.js\`.
 - [x] Chiffrer localement notes, favoris et snapshots avec AES-GCM via passphrase.
+- [x] Importer un dossier Obsidian en nouveau vault PovMind avec dossiers et liens wiki.
 
 ## À prioriser
 
@@ -1467,6 +1498,18 @@ function uniqueTitle(baseTitle) {
   return `${base} ${index}`;
 }
 
+function uniqueTitleFromSet(baseTitle, usedTitles) {
+  const base = String(baseTitle || "Sans titre").trim() || "Sans titre";
+  let candidate = base;
+  let index = 2;
+  while (usedTitles.has(normalizeTitle(candidate))) {
+    candidate = `${base} ${index}`;
+    index += 1;
+  }
+  usedTitles.add(normalizeTitle(candidate));
+  return candidate;
+}
+
 function createNote(title = "Nouvelle note", body = "", options: { folder?: string } = {}) {
   if (!requireVaultUnlocked("créer une note")) return null;
   const createdAt = nowIso();
@@ -1529,6 +1572,14 @@ function extractWikiLinks(text) {
     if (title) links.push(title);
   }
   return links;
+}
+
+function rewriteWikiLinkTargets(markdown, targetMap) {
+  return String(markdown || "").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, rawTarget, rawAlias) => {
+    const nextTarget = targetMap.get(normalizeTitle(rawTarget)) || rawTarget;
+    const alias = String(rawAlias || "").trim();
+    return alias ? `[[${nextTarget}|${alias}]]` : `[[${nextTarget}]]`;
+  });
 }
 
 function extractTags(text) {
@@ -4105,6 +4156,190 @@ function ensureCodeRepoNote() {
   return activeNote();
 }
 
+function rawFileRelativePath(file) {
+  return String(file?.webkitRelativePath || file?.name || "").replaceAll("\\", "/");
+}
+
+function selectedVaultRootSegment(paths) {
+  const firstSegments = paths
+    .map((path) => path.split("/").filter(Boolean))
+    .filter((segments) => segments.length > 1)
+    .map((segments) => segments[0]);
+  if (!firstSegments.length) return "";
+  return firstSegments.every((segment) => segment === firstSegments[0]) ? firstSegments[0] : "";
+}
+
+function stripSelectedVaultRoot(path, rootSegment) {
+  const segments = String(path || "").split("/").filter(Boolean);
+  if (rootSegment && segments[0] === rootSegment) segments.shift();
+  return segments.join("/");
+}
+
+function shouldImportObsidianFile(path) {
+  const segments = String(path || "").split("/").filter(Boolean);
+  if (!segments.length) return false;
+  const filename = segments[segments.length - 1];
+  if (!/\.md$/i.test(filename)) return false;
+  return !segments.some((segment) => OBSIDIAN_IGNORED_DIRS.has(segment) || segment.startsWith("."));
+}
+
+function obsidianFolderForPath(path) {
+  const segments = String(path || "").split("/").filter(Boolean);
+  segments.pop();
+  return normalizeFolder(segments.join("/") || ROOT_FOLDER);
+}
+
+function obsidianPathWithoutMarkdown(path) {
+  return stripMarkdownExtension(String(path || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, ""));
+}
+
+function splitObsidianTarget(rawTarget) {
+  const decoded = decodeObsidianPath(rawTarget);
+  const markerIndexes = ["#", "^"]
+    .map((marker) => decoded.indexOf(marker))
+    .filter((index) => index >= 0);
+  const markerIndex = markerIndexes.length ? Math.min(...markerIndexes) : -1;
+  const notePath = markerIndex >= 0 ? decoded.slice(0, markerIndex) : decoded;
+  const fragment = markerIndex >= 0 ? decoded.slice(markerIndex + 1) : "";
+  return {
+    notePath: notePath.trim(),
+    fragment: fragment.trim(),
+  };
+}
+
+function obsidianTargetHasAttachmentExtension(targetPath) {
+  return /\.[a-z0-9]{2,8}$/i.test(targetPath) && !/\.md$/i.test(targetPath);
+}
+
+function makeObsidianImportIndexes(entries) {
+  const titleCounts = new Map();
+  for (const entry of entries) {
+    const normalized = normalizeTitle(entry.baseTitle);
+    titleCounts.set(normalized, (titleCounts.get(normalized) || 0) + 1);
+  }
+
+  const usedTitles = new Set();
+  const pathToTitle = new Map();
+  const titleToTitle = new Map();
+  const duplicateTitles = new Set([...titleCounts.entries()].filter(([, count]) => count > 1).map(([title]) => title));
+
+  for (const entry of entries) {
+    const folderLabel = entry.folder === ROOT_FOLDER ? ROOT_FOLDER : entry.folder.replaceAll("/", " / ");
+    const duplicate = duplicateTitles.has(normalizeTitle(entry.baseTitle));
+    const base = duplicate ? `${entry.baseTitle} · ${folderLabel}` : entry.baseTitle;
+    entry.title = uniqueTitleFromSet(base, usedTitles);
+    pathToTitle.set(normalizePathKey(entry.pathWithoutMarkdown), entry.title);
+  }
+
+  for (const entry of entries) {
+    const normalized = normalizeTitle(entry.baseTitle);
+    if (!duplicateTitles.has(normalized)) titleToTitle.set(normalized, entry.title);
+  }
+
+  return { pathToTitle, titleToTitle };
+}
+
+function resolveObsidianNoteTitle(rawTarget, currentTitle, indexes) {
+  const { notePath, fragment } = splitObsidianTarget(rawTarget);
+  if (!notePath && fragment) return currentTitle;
+
+  const pathTarget = normalizePathKey(obsidianPathWithoutMarkdown(notePath));
+  if (pathTarget && indexes.pathToTitle.has(pathTarget)) return indexes.pathToTitle.get(pathTarget);
+
+  const baseTarget = normalizeTitle(basenameWithoutMarkdown(notePath));
+  if (baseTarget && indexes.titleToTitle.has(baseTarget)) return indexes.titleToTitle.get(baseTarget);
+  if (obsidianTargetHasAttachmentExtension(notePath)) return "";
+
+  return basenameWithoutMarkdown(notePath || rawTarget);
+}
+
+function convertObsidianLinks(markdown, currentTitle, indexes) {
+  return String(markdown || "").replace(/(!?)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, embed, rawTarget, rawAlias) => {
+    const { notePath } = splitObsidianTarget(rawTarget);
+    const pathTarget = normalizePathKey(obsidianPathWithoutMarkdown(notePath));
+    const baseTarget = normalizeTitle(basenameWithoutMarkdown(notePath));
+    const knownNote = (pathTarget && indexes.pathToTitle.has(pathTarget)) || (baseTarget && indexes.titleToTitle.has(baseTarget));
+    if (!knownNote && obsidianTargetHasAttachmentExtension(notePath)) {
+      const label = String(rawAlias || basenameWithoutMarkdown(notePath) || notePath).trim();
+      return label ? `[Pièce jointe Obsidian non importée : ${label}]` : "";
+    }
+
+    const resolvedTitle = resolveObsidianNoteTitle(rawTarget, currentTitle, indexes);
+    if (!resolvedTitle) return "";
+    const alias = String(rawAlias || "").trim();
+    return alias && alias !== resolvedTitle ? `[[${resolvedTitle}|${alias}]]` : `[[${resolvedTitle}]]`;
+  });
+}
+
+async function buildObsidianImportPayload(files) {
+  const allFiles = [...files];
+  const rawPaths = allFiles.map(rawFileRelativePath).filter(Boolean);
+  const rootSegment = selectedVaultRootSegment(rawPaths);
+  const entries = allFiles
+    .map((file) => {
+      const path = stripSelectedVaultRoot(rawFileRelativePath(file), rootSegment);
+      return { file, path };
+    })
+    .filter((entry) => shouldImportObsidianFile(entry.path))
+    .map((entry) => {
+      const pathWithoutMarkdown = obsidianPathWithoutMarkdown(entry.path);
+      return {
+        ...entry,
+        pathWithoutMarkdown,
+        folder: obsidianFolderForPath(entry.path),
+        baseTitle: basenameWithoutMarkdown(entry.path),
+        title: "",
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path, "fr"));
+
+  const indexes = makeObsidianImportIndexes(entries);
+  const createdAt = nowIso();
+  const notes = [];
+  for (const entry of entries) {
+    const text = await entry.file.text();
+    notes.push({
+      id: uid(),
+      title: entry.title,
+      folder: entry.folder,
+      body: convertObsidianLinks(text || `# ${entry.title}\n`, entry.title, indexes),
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+
+  const vaultName = rootSegment || "Vault Obsidian";
+  return {
+    version: 1,
+    source: "obsidian-vault",
+    importedAt: createdAt,
+    vaultName,
+    activeId: notes[0]?.id || "",
+    notes,
+  };
+}
+
+async function importObsidianVault(fileList) {
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  if (!requireVaultUnlocked("importer un vault Obsidian")) {
+    els.obsidianInput.value = "";
+    return;
+  }
+
+  try {
+    const payload = await buildObsidianImportPayload(files);
+    if (!payload.notes.length) throw new Error("Aucune note Markdown trouvée");
+    await createVaultFromImportPayload(payload, payload.vaultName);
+    toast(`Vault Obsidian importé : ${payload.notes.length} note(s).`);
+  } catch (error) {
+    console.error(error);
+    toast("Import Obsidian impossible : sélectionne le dossier du vault contenant des fichiers .md.");
+  } finally {
+    els.obsidianInput.value = "";
+  }
+}
+
 function normalizeVaultImportPayload(parsed) {
   const isSnapshot = parsed?.format === "povmind-vault-snapshot" && parsed.content && typeof parsed.content === "object";
   const source = isSnapshot ? parsed.content : parsed;
@@ -4180,16 +4415,23 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
     persistGraphPositions();
   } else {
     const idMap = new Map();
+    const usedTitles = new Set(state.notes.map((note) => normalizeTitle(note.title)));
+    const titleMap = new Map();
     const merged = payload.notes.map((note) => {
       const nextId = uid();
+      const nextTitle = uniqueTitleFromSet(note.title, usedTitles);
       idMap.set(note.id, nextId);
+      titleMap.set(normalizeTitle(note.title), nextTitle);
       return {
         ...note,
         id: nextId,
-        title: uniqueTitle(note.title),
+        title: nextTitle,
         updatedAt: nowIso(),
       };
     });
+    for (const note of merged) {
+      note.body = rewriteWikiLinkTargets(note.body, titleMap);
+    }
     state.notes = [...merged, ...state.notes];
     if (payload.repo && !repoIsLinked()) {
       state.repo = cleanRepoState(payload.repo);
@@ -4216,6 +4458,68 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
 
   persistStarredIds();
   persistNow(true);
+  renderAll();
+}
+
+async function createVaultFromImportPayload(parsed, rawName) {
+  const payload = normalizeVaultImportPayload(parsed);
+  if (!payload.notes.length) throw new Error("Aucune note valide");
+
+  await persistActiveVaultBeforeLeaving();
+  const id = createVaultId();
+  const createdAt = nowIso();
+  const name = cleanVaultName(rawName, `Vault importé ${vaultRegistry.vaults.length + 1}`);
+  vaultRegistry.vaults.unshift({
+    id,
+    name,
+    createdAt,
+    updatedAt: createdAt,
+    noteCount: 0,
+    tokenSealed: false,
+  });
+  activeVaultId = id;
+  vaultRegistry.activeId = id;
+  persistVaultRegistry();
+
+  const idMap = new Map();
+  state.notes = payload.notes.map((note) => {
+    const nextId = uid();
+    idMap.set(note.id, nextId);
+    return { ...note, id: nextId, createdAt: note.createdAt || createdAt, updatedAt: note.updatedAt || createdAt };
+  });
+  state.activeId = idMap.get(payload.activeId) || state.notes[0]?.id || null;
+  state.search = "";
+  state.tagFilter = null;
+  state.folderFilter = null;
+  state.view = "split";
+  state.starredIds = new Set([...payload.starredIds].map((noteId) => idMap.get(noteId)).filter(Boolean));
+  if (!state.starredIds.size && state.activeId) state.starredIds.add(state.activeId);
+  state.layout = { ...DEFAULT_LAYOUT };
+  state.layoutDragging = null;
+  state.graphFullscreen = false;
+  state.graphPositions = payload.graphPositions ? clonePlain(payload.graphPositions) : {};
+  state.graphRuntimePositions = {};
+  state.graphDragging = null;
+  state.graphClickSuppressed = false;
+  state.security = cleanSecurityState(null, activeVaultId);
+  state.assistantToken = "";
+  state.vaultCryptoKey = null;
+  state.vaultUnlocked = false;
+  state.snapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS);
+  state.repo = payload.repo ? cleanRepoState(payload.repo) : cleanRepoState(null);
+  state.githubSync = payload.githubSync ? cleanGithubSyncState(payload.githubSync) : cleanGithubSyncState(null);
+  els.searchInput.value = "";
+
+  localStorage.setItem(vaultStorageKey("view"), state.view);
+  persistSecurityState();
+  persistRepoState();
+  persistGithubSyncState();
+  persistLayoutSettings();
+  persistGraphPositions();
+  persistSnapshots();
+  persistStarredIds();
+  persistNow(true);
+  applyLayoutSettings();
   renderAll();
 }
 
@@ -4659,6 +4963,11 @@ function commandDefinitions(query = "") {
       run: exportVault,
     },
     {
+      title: "Importer vault Obsidian",
+      detail: "Créer un vault depuis un dossier Obsidian",
+      run: () => els.obsidianInput.click(),
+    },
+    {
       title: "Créer un snapshot",
       detail: "Figer le vault avec hash global",
       run: createVaultSnapshot,
@@ -4932,6 +5241,8 @@ function bindEvents() {
   });
   els.importBtn.addEventListener("click", () => els.importInput.click());
   els.importInput.addEventListener("change", (event) => importVault(event.target.files?.[0]));
+  els.importObsidianBtn.addEventListener("click", () => els.obsidianInput.click());
+  els.obsidianInput.addEventListener("change", (event) => importObsidianVault(event.target.files));
 
   els.snapshotsList.addEventListener("click", (event) => {
     const row = event.target.closest("[data-snapshot-id]");
