@@ -57,10 +57,12 @@
     } else {
       throw new Error("Format inattendu sous povmind:vault:" + vaultId + ":notes — ouvre une issue avec un export du localStorage.");
     }
-    const registry = readJson("povmind:vaults:index", []);
-    const meta = Array.isArray(registry)
-      ? registry.find((v) => v && v.id === vaultId) || {}
-      : {};
+    // Registry shape: { activeId, vaults: [...] }
+    const registryRaw = readJson("povmind:vaults:index", null);
+    const vaults = registryRaw && typeof registryRaw === "object" && Array.isArray(registryRaw.vaults)
+      ? registryRaw.vaults
+      : Array.isArray(registryRaw) ? registryRaw : [];
+    const meta = vaults.find((v) => v && v.id === vaultId) || {};
     const security = readJson(vaultKey(vaultId, "security"), null);
     const repo = readJson(vaultKey(vaultId, "repo"), null);
 

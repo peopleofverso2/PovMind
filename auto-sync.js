@@ -60,8 +60,12 @@
       return null;
     }
 
-    const registry = read(REGISTRY_KEY, []);
-    const meta = Array.isArray(registry) ? registry.find((v) => v && v.id === vaultId) || {} : {};
+    // Registry shape: { activeId, vaults: [...] }
+    const registryRaw = read(REGISTRY_KEY, null);
+    const vaultsArr = registryRaw && typeof registryRaw === "object" && Array.isArray(registryRaw.vaults)
+      ? registryRaw.vaults
+      : Array.isArray(registryRaw) ? registryRaw : [];
+    const meta = vaultsArr.find((v) => v && v.id === vaultId) || {};
     const security = read(`povmind:vault:${vaultId}:security`, null);
     const repo = read(`povmind:vault:${vaultId}:repo`, null);
 

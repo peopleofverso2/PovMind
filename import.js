@@ -49,18 +49,26 @@
     return new Date().toISOString();
   }
 
+  // PovMind's registry shape (cleanVaultRegistry in app.ts):
+  //   { activeId, vaults: [{ id, name, createdAt, updatedAt, noteCount, tokenSealed }] }
+  function getRegistry() {
+    const raw = readJson("povmind:vaults:index", null);
+    if (raw && typeof raw === "object" && Array.isArray(raw.vaults)) return raw;
+    return { activeId: "", vaults: [] };
+  }
+
   function refreshVaultList() {
-    const registry = readJson("povmind:vaults:index", []);
-    const active = localStorage.getItem("povmind:vaults:active") || "";
+    const reg = getRegistry();
+    const active = localStorage.getItem("povmind:vaults:active") || reg.activeId || "";
     targetVaultSel.innerHTML = "";
-    if (!Array.isArray(registry) || registry.length === 0) {
+    if (reg.vaults.length === 0) {
       const opt = document.createElement("option");
       opt.value = "";
       opt.textContent = "(aucun vault — clique « + Nouveau »)";
       targetVaultSel.appendChild(opt);
       return;
     }
-    for (const v of registry) {
+    for (const v of reg.vaults) {
       if (!v || !v.id) continue;
       const opt = document.createElement("option");
       opt.value = v.id;
@@ -74,17 +82,26 @@
     const name = prompt("Nom du nouveau vault :", "Obsidian Import");
     if (!name) return;
     const id = uid("vlt");
-    const registry = readJson("povmind:vaults:index", []);
-    const next = Array.isArray(registry) ? registry.slice() : [];
-    next.push({ id, name, createdAt: nowIso() });
-    localStorage.setItem("povmind:vaults:index", JSON.stringify(next));
+    const reg = getRegistry();
+    const createdAt = nowIso();
+    reg.vaults.unshift({
+      id,
+      name,
+      createdAt,
+      updatedAt: createdAt,
+      noteCount: 0,
+      tokenSealed: false,
+    });
+    reg.activeId = id; // make this vault the active one — PovMind will load it on next reload.
+    localStorage.setItem("povmind:vaults:index", JSON.stringify(reg, null, 2));
+    localStorage.setItem("povmind:vaults:active", id);
     localStorage.setItem(
       "povmind:vault:" + id + ":notes",
       JSON.stringify({ version: 1, activeId: null, starredIds: [], snapshots: [], notes: [] }),
     );
     refreshVaultList();
     targetVaultSel.value = id;
-    log("Vault créé : " + name + " (" + id + ").");
+    log("Vault créé : " + name + " (" + id + "). Actif au prochain reload PovMind.");
   });
 
   // ── Folder traversal ────────────────────────────────────────────────────
@@ -258,6 +275,18 @@
 
     try {
       localStorage.setItem(envelopeKey, JSON.stringify(envelope));
+      // Bump noteCount on the registry entry so PovMind's vault picker shows
+      // the right count immediately (without having to load the vault first).
+      const reg = getRegistry();
+      const idx = reg.vaults.findIndex((v) => v && v.id === vaultId);
+      if (idx >= 0) {
+        reg.vaults[idx] = {
+          ...reg.vaults[idx],
+          noteCount: envelope.notes.length,
+          updatedAt: nowIso(),
+        };
+        localStorage.setItem("povmind:vaults:index", JSON.stringify(reg, null, 2));
+      }
     } catch (err) {
       log("✗ Écriture localStorage : " + err.message + " (vault peut-être trop gros pour localStorage)");
       return;
@@ -329,8 +358,15 @@
       added++;
       if (i % 25 === 0 || i === files.length - 1) log("  " + (i + 1) + "/" + files.length + " parsées (+" + added + ")");
     }
-    try { localStorage.setItem(envelopeKey, JSON.stringify(envelope)); }
-    catch (err) { log("✗ Écriture localStorage : " + err.message); return; }
+    try {
+      localStorage.setItem(envelopeKey, JSON.stringify(envelope));
+      const reg = getRegistry();
+      const idx = reg.vaults.findIndex((v) => v && v.id === vaultId);
+      if (idx >= 0) {
+        reg.vaults[idx] = { ...reg.vaults[idx], noteCount: envelope.notes.length, updatedAt: nowIso() };
+        localStorage.setItem("povmind:vaults:index", JSON.stringify(reg, null, 2));
+      }
+    } catch (err) { log("✗ Écriture localStorage : " + err.message); return; }
     log("");
     log("✓ Import terminé : +" + added + " note(s), " + skipped + " ignorée(s).");
     log("Total dans le vault : " + envelope.notes.length + " note(s).");
