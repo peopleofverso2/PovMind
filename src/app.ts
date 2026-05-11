@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.11.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -19,6 +19,8 @@ const LEGACY_STARRED_KEY = "graphnotes:starred";
 const MAX_GRAPH_NODES = 80;
 const MAX_SNAPSHOTS = 24;
 const MAX_REPO_FILES_RENDERED = 8;
+const MAX_DEV_CONTEXT_FILES = 80;
+const MAX_DEV_CONTEXT_NOTE_BYTES = 16000;
 const VAULT_CRYPTO_ITERATIONS = 310000;
 const ROOT_FOLDER = "Racine";
 const OBSIDIAN_IGNORED_DIRS = new Set([".obsidian", ".git", ".trash", ".stfolder", "node_modules"]);
@@ -268,6 +270,8 @@ const els: Record<string, any> = {
   githubPathInput: document.getElementById("githubPathInput"),
   githubMetaLine: document.getElementById("githubMetaLine"),
   githubConnectBtn: document.getElementById("githubConnectBtn"),
+  githubScanBtn: document.getElementById("githubScanBtn"),
+  githubEnrichBtn: document.getElementById("githubEnrichBtn"),
   githubPushBtn: document.getElementById("githubPushBtn"),
   githubPullBtn: document.getElementById("githubPullBtn"),
   exportGithubContextBtn: document.getElementById("exportGithubContextBtn"),
@@ -999,6 +1003,12 @@ function clampText(value, limit = 120) {
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
+function truncateText(value, limit = 12000) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n\n[contenu tronqué par PovMind : ${text.length - limit} caractère(s) restant(s)]`;
+}
+
 function formatDate(iso) {
   try {
     return new Intl.DateTimeFormat("fr-FR", {
@@ -1193,12 +1203,12 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Index",
       folder: "Documentation PovMind",
-      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - Repo en vault dev]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
     },
     {
       title: "PovMind - Architecture",
       folder: "Documentation PovMind",
-      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS avec un coeur TypeScript compile en JavaScript navigateur. Elle reste servie comme un vault statique local-first.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`src/app.ts\` : source TypeScript du modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`app.js\` : fichier généré par \`npm run build\` et chargé par le navigateur.\n- \`tsconfig.json\` : configuration de compilation TypeScript vers un bundle navigateur sans framework.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions avec build TypeScript.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Import Obsidian depuis un dossier local, export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\n## Frontières TypeScript\n\nLes premiers types couvrent \`Note\`, \`VaultRegistry\`, \`SecurityState\`, \`VaultSnapshot\`, \`LayoutSettings\` et \`AppState\`. La prochaine étape est d'extraire ces modèles dans des modules dédiés.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture #typescript`,
+      body: `# PovMind - Architecture\n\nPovMind est une application HTML/CSS avec un coeur TypeScript compile en JavaScript navigateur. Elle reste servie comme un vault statique local-first.\n\n## Fichiers principaux\n\n- \`index.html\` : structure de l'interface.\n- \`styles.css\` : identité visuelle People of Verso, panneaux redimensionnables et responsive.\n- \`src/app.ts\` : source TypeScript du modèle de notes, rendu Markdown, backlinks, graphe, exports et sécurité.\n- \`app.js\` : fichier généré par \`npm run build\` et chargé par le navigateur.\n- \`tsconfig.json\` : configuration de compilation TypeScript vers un bundle navigateur sans framework.\n- \`server.js\` : serveur statique Node pour Cloud Run avec headers sécurité et connecteur GitHub OAuth.\n- \`sw.js\` et \`manifest.json\` : PWA/cache.\n- \`.github/workflows/ci.yml\` : vérification GitHub Actions avec build TypeScript.\n\n## Stockage local\n\nLes notes sont stockées dans \`localStorage\` sous \`povmind:vault:{vaultId}:notes\`. Les préférences de vue, graphe, favoris, layout, repo, snapshots, GitHub sync et accès assistant utilisent des clés isolées par vault.\n\n## Surfaces métier\n\n- Éditeur Markdown + aperçu.\n- Liens wiki \`[[note]]\`, backlinks et liens sortants.\n- Graphe navigable et redimensionnable.\n- Import Obsidian depuis un dossier local, export JSON, export Codex KB et export MCP.\n- Connexion à un repo de code via manifeste ou scan GitHub en vault de contexte dev.\n- Publication GitHub avec CI comme source exécutable.\n- Synchronisation d'un contexte \`.povmind/\` avec \`AGENTS.md\` pour relier notes, snapshots et repo.\n\n## Frontières TypeScript\n\nLes premiers types couvrent \`Note\`, \`VaultRegistry\`, \`SecurityState\`, \`VaultSnapshot\`, \`LayoutSettings\` et \`AppState\`. La prochaine étape est d'extraire ces modèles dans des modules dédiés.\n\nVoir aussi [[PovMind - Sécurité et tokens]], [[PovMind - Code repo]], [[PovMind - Repo en vault dev]], [[PovMind - GitHub repo]] et [[PovMind - GitHub sync]]. #povmind #architecture #typescript`,
     },
     {
       title: "PovMind - Interface Obsidian",
@@ -1285,6 +1295,11 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
       body: `# PovMind - Code repo\n\nLe principe du vault est d'ancrer la mémoire au code réel. Un vault utile doit connaître le repo auquel il se rapporte.\n\n## Rôle du repo dans PovMind\n\n- Le vault documente les décisions, le contexte et les liens.\n- Le repo contient le code exécutable, les tests et l'historique Git.\n- Le snapshot lie les deux avec \`vaultHash\` + \`repoCommit\` + \`repoTreeHash\`.\n- L'export MCP expose le repo en lecture seule pour que l'assistant cite et inspecte le code réel.\n\n## Flux recommandé\n\n1. Depuis le repo, générer un manifeste : \`npm run repo:manifest -- /chemin/du/repo\`.\n2. Importer le JSON dans le panneau “Code repo”.\n3. Créer un snapshot du vault.\n4. Exporter MCP pour donner à l'assistant le contexte notes + code.\n\n## Sécurité\n\nLe manifeste exclut \`.env\`, secrets, tokens, dossiers lourds et fichiers ignorés par Git quand possible. L'intégration est read-only par défaut.\n\n## Outils MCP liés\n\n- \`povmind.repo_manifest\`\n- \`povmind.repo_list_files\`\n- \`povmind.repo_search\`\n- \`povmind.repo_read_file\`\n\n#povmind #repo #code`,
     },
     {
+      title: "PovMind - Repo en vault dev",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Repo en vault dev\n\nDécision : un repo GitHub peut être traduit directement en vault PovMind pour garder un contexte de développement durable.\n\n## Deux modes\n\n- Scanner en vault : crée un nouveau vault \`Dev - {repo}\` avec manifest, carte, fichiers et patterns.\n- Enrichir actif : ajoute ou met à jour ce contexte dans le vault ouvert, sans dupliquer les notes générées au rescan.\n\n## Patterns communs\n\nChaque vault généré reçoit une structure commune :\n\n- Dev Index.\n- Carte du repo.\n- Entrées techniques.\n- Manifest repo.\n- Journal de décisions.\n- Runbook.\n- Tests et qualité.\n- Sécurité et accès.\n- Questions ouvertes.\n\n## Sécurité\n\nLe scan passe par Cloud Run et l'API GitHub. Les secrets, tokens, dossiers lourds, \`.git\`, \`.povmind\`, locks et caches sont exclus. Pour les repos privés, le token GitHub reste côté serveur via cookie HttpOnly chiffré.\n\n## Intérêt assistant\n\nUn assistant peut entrer dans un repo par la carte et les points d'entrée plutôt que relire tout le code sans structure. Le vault devient le contexte vivant du développement.\n\nVoir [[PovMind - Code repo]], [[PovMind - GitHub sync]] et [[PovMind - MCP assistant]]. #github #dev #pattern #contexte`,
+    },
+    {
       title: "PovMind - GitHub repo",
       folder: "Documentation PovMind",
       body: `# PovMind - GitHub repo\n\nGitHub est le registre exécutable de PovMind : code, revues, CI, historique et liens vers les snapshots du vault.\n\n## Contrat\n\n- \`main\` doit rester déployable.\n- Chaque changement durable doit passer par \`npm run check\`.\n- La CI GitHub vérifie la synchronisation de version, la syntaxe et le manifest repo.\n- Le repo ne doit jamais contenir \`.env\`, tokens, exports MCP, zips ou dossiers \`output/\`.\n\n## Fichiers GitHub\n\n- \`.gitignore\` : exclusions locales et secrets.\n- \`.github/workflows/ci.yml\` : contrôle continu.\n- \`SECURITY.md\` : modèle de sécurité actuel.\n- \`.povmind/\` : contexte versionnable du vault quand la sync est activée.\n- \`AGENTS.md\` : consignes racine pour l'assistant de code.\n\n## Lien avec le vault\n\nUn snapshot doit pouvoir citer un commit Git et un \`repoTreeHash\`. L'assistant peut ensuite lire les notes, le manifest repo et les fichiers exportés via MCP.\n\nVoir [[PovMind - Code repo]], [[PovMind - GitHub sync]] et [[PovMind - Snapshots du vault]]. #github #repo #ci`,
@@ -1321,6 +1336,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Migrer l'entrée applicative vers \`src/app.ts\` avec build TypeScript vers \`app.js\`.
 - [x] Chiffrer localement notes, favoris et snapshots avec AES-GCM via passphrase.
 - [x] Importer un dossier Obsidian en nouveau vault PovMind avec dossiers et liens wiki.
+- [x] Scanner un repo GitHub en vault dev ou enrichir le vault actif avec des patterns communs.
 
 ## À prioriser
 
@@ -1777,6 +1793,8 @@ function renderGithubPanel() {
   els.githubRepoInput.value = sync.repoFullName;
   els.githubBranchInput.value = sync.branch;
   els.githubPathInput.value = sync.basePath;
+  els.githubScanBtn.disabled = locked || !sync.repoFullName;
+  els.githubEnrichBtn.disabled = locked || !sync.repoFullName;
   els.githubPushBtn.disabled = locked || !sync.repoFullName || !configured;
   els.githubPullBtn.disabled = locked || !sync.repoFullName || !configured;
   els.exportGithubContextBtn.disabled = locked;
@@ -4156,6 +4174,365 @@ function ensureCodeRepoNote() {
   return activeNote();
 }
 
+function repoFileNoteLanguage(file) {
+  return String(file.language || "text").replace(/[^a-z0-9_+-]/gi, "") || "text";
+}
+
+function repoFileFence(content, language) {
+  const safeContent = String(content || "").replaceAll("```", "`\u200b``");
+  return `\`\`\`${repoFileNoteLanguage({ language })}\n${safeContent}\n\`\`\``;
+}
+
+function topRepoFolder(filePath) {
+  const first = String(filePath || "").split("/").filter(Boolean)[0] || ROOT_FOLDER;
+  return first.includes(".") ? ROOT_FOLDER : first;
+}
+
+function isLikelyRepoEntryFile(file) {
+  const path = String(file.path || "");
+  const name = path.split("/").pop() || "";
+  return [
+    "README.md",
+    "AGENTS.md",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+    "vite.config.ts",
+    "vite.config.js",
+    "next.config.js",
+    "server.js",
+    "Dockerfile",
+    "docker-compose.yml",
+    ".github/workflows/ci.yml",
+  ].includes(path)
+    || /(^|\/)(app|main|index|server|worker|client)\.(ts|tsx|js|mjs|cjs|py|go|rs|jsx)$/i.test(path)
+    || /^README(\.[a-z]+)?\.md$/i.test(name);
+}
+
+function repoPackageSummary(repo) {
+  const packageFile = (repo.files || []).find((file) => file.path === "package.json" && file.content);
+  if (!packageFile) return "";
+  try {
+    const pkg = JSON.parse(packageFile.content);
+    const scripts = pkg.scripts && typeof pkg.scripts === "object"
+      ? Object.entries(pkg.scripts).slice(0, 12).map(([name, value]) => `- \`${name}\` : \`${value}\``).join("\n")
+      : "- Aucun script package.json.";
+    const deps = [
+      ...Object.keys(pkg.dependencies || {}),
+      ...Object.keys(pkg.devDependencies || {}),
+    ].slice(0, 30);
+    return `\n## Package.json\n\n- Nom : ${pkg.name || repo.name || "non renseigné"}\n- Version : ${pkg.version || "non renseignée"}\n\n### Scripts\n\n${scripts}\n\n### Dépendances clés\n\n${deps.length ? deps.map((dep) => `- \`${dep}\``).join("\n") : "- Aucune dépendance listée."}\n`;
+  } catch {
+    return "";
+  }
+}
+
+function createCommonVaultPatternNotes(addNote, repoName, linkTargets) {
+  const decisions = addNote(
+    `${repoName} - Journal de décisions`,
+    "Patterns",
+    `# ${repoName} - Journal de décisions\n\nPattern commun : une décision doit garder le contexte, les options, le choix, l'impact et les liens vers le code ou les notes concernées.\n\n## Décisions\n\n- [ ] Décision : contexte, options, choix, impact, owner, date.\n\n## Liens\n\n- [[${linkTargets.index}]]\n- [[${linkTargets.map}]]\n\n#pattern #decision #contexte`,
+  );
+  const runbook = addNote(
+    `${repoName} - Runbook`,
+    "Patterns",
+    `# ${repoName} - Runbook\n\nPattern commun : tout vault lié à un système doit contenir les commandes de setup, test, build, déploiement, rollback et debug.\n\n## Setup\n\n- [ ] Installer les dépendances.\n- [ ] Configurer les variables d'environnement sans exposer de secret.\n\n## Vérification\n\n- [ ] Tests automatisés.\n- [ ] Build.\n- [ ] Smoke test local ou prod.\n\n## Liens\n\n- [[${linkTargets.index}]]\n- [[${linkTargets.entries}]]\n\n#pattern #runbook #ops`,
+  );
+  const quality = addNote(
+    `${repoName} - Tests et qualité`,
+    "Patterns",
+    `# ${repoName} - Tests et qualité\n\nPattern commun : séparer ce qui prouve que le système compile, ce qui prouve le comportement métier, et ce qui protège les flux critiques.\n\n## Checklist\n\n- [ ] Build reproductible.\n- [ ] Tests unitaires ou smoke tests.\n- [ ] Vérification UI si frontend.\n- [ ] Vérification des exports/imports si contexte.\n\n## Liens\n\n- [[${linkTargets.entries}]]\n- [[${runbook.title}]]\n\n#pattern #test #qualite`,
+  );
+  const security = addNote(
+    `${repoName} - Sécurité et accès`,
+    "Patterns",
+    `# ${repoName} - Sécurité et accès\n\nPattern commun : documenter les frontières de confiance, les secrets attendus, les tokens, les endpoints sensibles et les données que l'assistant peut lire.\n\n## À documenter\n\n- [ ] Secrets et variables d'environnement.\n- [ ] Tokens côté serveur ou navigateur.\n- [ ] Données sensibles exclues du scan.\n- [ ] Endpoints et scopes nécessaires.\n\n## Liens\n\n- [[${linkTargets.manifest}]]\n- [[${linkTargets.index}]]\n\n#pattern #security #token`,
+  );
+  const questions = addNote(
+    `${repoName} - Questions ouvertes`,
+    "Patterns",
+    `# ${repoName} - Questions ouvertes\n\nPattern commun : transformer les zones floues en questions actionnables avant d'écrire du code.\n\n## Questions\n\n- [ ] Quel est le flux utilisateur principal ?\n- [ ] Quelles données doivent rester locales ou chiffrées ?\n- [ ] Quelle partie du repo est source de vérité ?\n- [ ] Quels tests valident réellement le changement ?\n\n## Liens\n\n- [[${linkTargets.index}]]\n- [[${decisions.title}]]\n\n#pattern #questions #contexte`,
+  );
+  const index = addNote(
+    `${repoName} - Patterns communs`,
+    "Patterns",
+    `# ${repoName} - Patterns communs\n\nCe dossier donne une structure répétable pour tous les vaults PovMind, qu'ils viennent d'Obsidian, d'un repo GitHub ou d'un contexte produit.\n\n## Patterns\n\n- [[${decisions.title}]]\n- [[${runbook.title}]]\n- [[${quality.title}]]\n- [[${security.title}]]\n- [[${questions.title}]]\n\n## Règle\n\nChaque vault doit permettre à un assistant de répondre à trois questions : quoi faire, pourquoi, et avec quelle preuve.\n\n#pattern #vault #povmind`,
+  );
+  return { index, decisions, runbook, quality, security, questions };
+}
+
+function buildDevVaultImportPayload(repoInput, syncInput = null) {
+  const repo = cleanRepoState({
+    ...repoInput,
+    linked: true,
+    importedAt: nowIso(),
+  });
+  const sync = cleanGithubSyncState(syncInput || {
+    repoFullName: cleanGithubRepoFullName(repo.remote),
+    branch: repo.branch || "main",
+  });
+  const createdAt = nowIso();
+  const repoName = repo.name || repo.root || sync.repoFullName || "Repo GitHub";
+  const usedTitles = new Set();
+  const notes = [];
+  const fileTitleByPath = new Map();
+  const files = (repo.files || []).slice(0, MAX_DEV_CONTEXT_FILES);
+
+  const addNote = (title, folder, body) => {
+    const note = {
+      id: uid(),
+      title: uniqueTitleFromSet(title, usedTitles),
+      folder: normalizeFolder(folder),
+      body,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    notes.push(note);
+    return note;
+  };
+
+  const indexNote = addNote(
+    `${repoName} - Dev Index`,
+    "Dev Context",
+    "",
+  );
+  const mapNote = addNote(`${repoName} - Carte du repo`, "Dev Context", "");
+  const entryNote = addNote(`${repoName} - Entrées techniques`, "Dev Context", "");
+  const manifestNote = addNote(`${repoName} - Manifest repo`, "Dev Context", "");
+  const patternNotes = createCommonVaultPatternNotes(addNote, repoName, {
+    index: indexNote.title,
+    map: mapNote.title,
+    entries: entryNote.title,
+    manifest: manifestNote.title,
+  });
+
+  for (const file of files) {
+    const title = uniqueTitleFromSet(`Code · ${file.path}`, usedTitles);
+    fileTitleByPath.set(file.path, title);
+  }
+
+  const fileLink = (file) => {
+    const title = fileTitleByPath.get(file.path);
+    return title ? `[[${title}|${file.path}]]` : `\`${file.path}\``;
+  };
+
+  const filesByFolder = new Map();
+  for (const file of files) {
+    const folder = topRepoFolder(file.path);
+    if (!filesByFolder.has(folder)) filesByFolder.set(folder, []);
+    filesByFolder.get(folder).push(file);
+  }
+  const folderLines = [...filesByFolder.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, "fr"))
+    .map(([folder, folderFiles]) => {
+      const fileLines = folderFiles
+        .slice(0, 18)
+        .map((file) => `  - ${fileLink(file)} · ${file.language || "texte"} · ${Number(file.bytes || 0)} o`)
+        .join("\n");
+      const more = folderFiles.length > 18 ? `\n  - ... ${folderFiles.length - 18} fichier(s) supplémentaire(s)` : "";
+      return `- ${folder} · ${folderFiles.length} fichier(s)\n${fileLines}${more}`;
+    })
+    .join("\n");
+
+  const entryFiles = files.filter(isLikelyRepoEntryFile).slice(0, 18);
+  const entryLines = entryFiles.length
+    ? entryFiles.map((file) => `- ${fileLink(file)} · ${clampText(file.preview || file.content, 140)}`).join("\n")
+    : "- Aucun point d'entrée évident détecté dans l'échantillon.";
+
+  const languageCounts = new Map();
+  for (const file of files) {
+    const language = file.language || "texte";
+    languageCounts.set(language, (languageCounts.get(language) || 0) + 1);
+  }
+  const languageLines = [...languageCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([language, count]) => `- ${language} : ${count}`)
+    .join("\n");
+
+  indexNote.body = `# ${indexNote.title}\n\nVault généré depuis un scan GitHub pour garder un contexte de développement exploitable par PovMind, Codex et MCP.\n\n## Repo\n\n- GitHub : ${sync.repoFullName || repo.remote || repoName}\n- Branche : ${repo.branch || sync.branch || "inconnue"}\n- Commit : ${repo.commit || "inconnu"}\n- Tree hash : \`${repo.treeHash || "inconnu"}\`\n- Fichiers indexés : ${repo.indexedCount || files.length}/${repo.fileCount || files.length}\n- Généré : ${repo.generatedAt || createdAt}\n\n## Navigation\n\n- [[${mapNote.title}]]\n- [[${entryNote.title}]]\n- [[${manifestNote.title}]]\n- [[${patternNotes.index.title}]]\n\n## Langages\n\n${languageLines || "- Aucun langage détecté."}\n\n## Prochaines actions\n\n- [ ] Lire les points d'entrée.\n- [ ] Ajouter les décisions techniques importantes comme notes dédiées.\n- [ ] Créer un snapshot après validation du contexte.\n\n#dev #github #repo #contexte`;
+
+  mapNote.body = `# ${mapNote.title}\n\nCarte générée depuis le manifest repo. Les fichiers sont stockés dans le vault comme contexte lisible, tandis que le manifest repo complet reste disponible dans les exports MCP/Codex.\n\n## Dossiers\n\n${folderLines || "- Aucun fichier indexé."}\n`;
+
+  entryNote.body = `# ${entryNote.title}\n\n## Points d'entrée détectés\n\n${entryLines}\n${repoPackageSummary(repo)}\n## Comment l'utiliser\n\n- Commencer par [[${indexNote.title}]].\n- Ouvrir les fichiers d'entrée ci-dessus avant de modifier le code.\n- Lier chaque décision à une note de projet ou de journal.\n\n#dev #architecture`;
+
+  const manifestSummary = {
+    format: repo.format,
+    version: repo.version,
+    name: repo.name,
+    root: repo.root,
+    remote: repo.remote,
+    branch: repo.branch,
+    commit: repo.commit,
+    treeHash: repo.treeHash,
+    generatedAt: repo.generatedAt,
+    importedAt: repo.importedAt,
+    fileCount: repo.fileCount,
+    indexedCount: repo.indexedCount,
+    policy: repo.policy,
+  };
+  manifestNote.body = `# ${manifestNote.title}\n\nCe manifest est le contrat technique du scan. Le manifest complet avec contenu des fichiers reste attaché au vault comme repo lié.\n\n${repoFileFence(JSON.stringify(manifestSummary, null, 2), "json")}\n\n#manifest #repo`;
+
+  for (const file of files) {
+    const title = fileTitleByPath.get(file.path);
+    const folder = `Code/${topRepoFolder(file.path)}`;
+    const content = truncateText(file.content || file.preview || "", MAX_DEV_CONTEXT_NOTE_BYTES);
+    notes.push({
+      id: uid(),
+      title,
+      folder: normalizeFolder(folder),
+      body: `# ${title}\n\n- Chemin : \`${file.path}\`\n- Langage : ${file.language || "texte"}\n- Taille : ${Number(file.bytes || 0)} o\n- Hash : \`${file.hash || "inconnu"}\`\n\n## Liens\n\n- [[${mapNote.title}]]\n- [[${entryNote.title}]]\n\n## Contenu\n\n${repoFileFence(content, file.language || "text")}\n\n#code #repo`,
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+
+  return {
+    version: 1,
+    source: "github-repo-scan",
+    importedAt: createdAt,
+    vaultName: `Dev - ${repoName}`,
+    activeId: indexNote.id,
+    starredIds: [indexNote.id, mapNote.id],
+    repo,
+    githubSync: cleanGithubSyncState({
+      ...sync,
+      repoFullName: sync.repoFullName || cleanGithubRepoFullName(repo.remote),
+      branch: repo.branch || sync.branch,
+      lastSyncedAt: createdAt,
+      lastCommit: repo.commit || sync.lastCommit,
+      lastDirection: "scan",
+    }),
+    notes,
+  };
+}
+
+function isRepoContextFolder(folder) {
+  const normalized = normalizeFolder(folder);
+  return normalized === "Dev Context" || normalized === "Patterns" || normalized.startsWith("Code/");
+}
+
+function mergeImportedVaultPayload(parsed) {
+  const payload = normalizeVaultImportPayload(parsed);
+  if (!payload.notes.length) throw new Error("Aucune note valide");
+
+  const idMap = new Map();
+  const usedTitles = new Set(state.notes.map((note) => normalizeTitle(note.title)));
+  const titleMap = new Map();
+  const existingByTitle = new Map(state.notes.map((note) => [normalizeTitle(note.title), note]));
+  const created = [];
+  const updated = [];
+  for (const note of payload.notes) {
+    const normalizedTitle = normalizeTitle(note.title);
+    const existing = existingByTitle.get(normalizedTitle);
+    if (existing && isRepoContextFolder(existing.folder) && isRepoContextFolder(note.folder)) {
+      idMap.set(note.id, existing.id);
+      titleMap.set(normalizedTitle, existing.title);
+      existing.folder = note.folder;
+      existing.body = note.body;
+      existing.updatedAt = nowIso();
+      updated.push(existing);
+      continue;
+    }
+
+    const nextId = uid();
+    const nextTitle = uniqueTitleFromSet(note.title, usedTitles);
+    idMap.set(note.id, nextId);
+    titleMap.set(normalizedTitle, nextTitle);
+    const nextNote = {
+      ...note,
+      id: nextId,
+      title: nextTitle,
+      createdAt: note.createdAt || nowIso(),
+      updatedAt: nowIso(),
+    };
+    created.push(nextNote);
+  }
+  for (const note of [...created, ...updated]) {
+    note.body = rewriteWikiLinkTargets(note.body, titleMap);
+  }
+
+  state.notes = [...created, ...state.notes];
+  for (const id of payload.starredIds) {
+    const nextId = idMap.get(id);
+    if (nextId) state.starredIds.add(nextId);
+  }
+  state.activeId = idMap.get(payload.activeId) || created[0]?.id || updated[0]?.id || state.activeId;
+  if (payload.repo) {
+    state.repo = cleanRepoState(payload.repo);
+    persistRepoState();
+  }
+  if (payload.githubSync) {
+    const nextSync = cleanGithubSyncState(payload.githubSync);
+    state.githubSync = cleanGithubSyncState({
+      ...nextSync,
+      connector: {
+        ...nextSync.connector,
+        ...(state.githubSync?.connector || {}),
+      },
+    });
+    persistGithubSyncState();
+  }
+  if (payload.snapshots.length) {
+    const importedSnapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean) as VaultSnapshot[];
+    const byId = new Map([...state.snapshots, ...importedSnapshots].map((snapshot) => [snapshot.id, snapshot]));
+    state.snapshots = [...byId.values()]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, MAX_SNAPSHOTS);
+    persistSnapshots();
+  }
+
+  persistStarredIds();
+  persistNow(true);
+  renderAll();
+}
+
+async function scanGithubRepoToVault(mode = "new") {
+  if (!requireVaultUnlocked("scanner un repo GitHub")) return;
+  syncGithubSettingsFromInputs();
+  const sync = cleanGithubSyncState(state.githubSync);
+  if (!sync.repoFullName) {
+    toast("Renseigne un repo GitHub au format owner/repo.");
+    return;
+  }
+
+  const activeButton = mode === "enrich" ? els.githubEnrichBtn : els.githubScanBtn;
+  const previousLabel = activeButton.textContent;
+  els.githubScanBtn.disabled = true;
+  els.githubEnrichBtn.disabled = true;
+  activeButton.textContent = "Scan...";
+  try {
+    const response = await fetch("/api/github/scan-repo", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        repoFullName: sync.repoFullName,
+        branch: sync.branch,
+        maxFiles: MAX_DEV_CONTEXT_FILES,
+        maxBytes: 45000,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "scan GitHub impossible");
+    const vaultPayload = buildDevVaultImportPayload(payload.repo, sync);
+    if (mode === "enrich") {
+      mergeImportedVaultPayload(vaultPayload);
+      toast(`Vault actif enrichi depuis ${sync.repoFullName} : ${vaultPayload.notes.length} note(s).`);
+    } else {
+      await createVaultFromImportPayload(vaultPayload, vaultPayload.vaultName);
+      toast(`Vault dev créé depuis ${sync.repoFullName} : ${vaultPayload.repo.indexedCount || vaultPayload.repo.files.length} fichier(s).`);
+    }
+  } catch (error) {
+    console.error(error);
+    toast(`Scan GitHub impossible : ${error.message}`);
+  } finally {
+    activeButton.textContent = previousLabel;
+    renderGithubPanel();
+  }
+}
+
 function rawFileRelativePath(file) {
   return String(file?.webkitRelativePath || file?.name || "").replaceAll("\\", "/");
 }
@@ -4998,6 +5375,16 @@ function commandDefinitions(query = "") {
       run: connectGithub,
     },
     {
+      title: "Scanner GitHub en nouveau vault",
+      detail: state.githubSync.repoFullName || "Configurer owner/repo",
+      run: () => scanGithubRepoToVault("new"),
+    },
+    {
+      title: "Enrichir le vault actif depuis GitHub",
+      detail: state.githubSync.repoFullName || "Configurer owner/repo",
+      run: () => scanGithubRepoToVault("enrich"),
+    },
+    {
       title: "Pousser contexte GitHub",
       detail: state.githubSync.repoFullName || "Configurer owner/repo",
       run: pushGithubContext,
@@ -5218,6 +5605,8 @@ function bindEvents() {
   els.githubBranchInput.addEventListener("change", syncGithubSettingsFromInputs);
   els.githubPathInput.addEventListener("change", syncGithubSettingsFromInputs);
   els.githubConnectBtn.addEventListener("click", connectGithub);
+  els.githubScanBtn.addEventListener("click", () => scanGithubRepoToVault("new"));
+  els.githubEnrichBtn.addEventListener("click", () => scanGithubRepoToVault("enrich"));
   els.githubPushBtn.addEventListener("click", pushGithubContext);
   els.githubPullBtn.addEventListener("click", pullGithubContext);
   els.exportGithubContextBtn.addEventListener("click", () => exportGithubContextBundle());

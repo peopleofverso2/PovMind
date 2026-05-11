@@ -38,6 +38,7 @@ const githubClientId = process.env.GITHUB_CLIENT_ID || "";
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET || "";
 const githubScope = process.env.GITHUB_OAUTH_SCOPE || "repo";
 const githubTokenKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY || "";
+const githubScanToken = process.env.GITHUB_SCAN_TOKEN || process.env.GITHUB_TOKEN || "";
 const githubStateCookie = "povmind_gh_state";
 const githubTokenCookie = "povmind_gh_token";
 const maxJsonBodyBytes = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
@@ -416,6 +417,21 @@ async function githubApi(token, endpoint, options = {}) {
   });
 }
 
+async function githubApiOptional(token, endpoint, options = {}) {
+  return githubFetch(`https://api.github.com${endpoint}`, {
+    method: options.method || "GET",
+    headers: {
+      "Accept": "application/vnd.github+json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      "Content-Type": "application/json",
+      "User-Agent": "PovMind",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(options.headers || {})
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+}
+
 function githubTokenFromRequest(req) {
   const cookies = parseCookies(req.headers.cookie);
   return decryptToken(cookies[githubTokenCookie]);
@@ -434,6 +450,179 @@ function repoParts(repoFullName) {
 
 function refEndpoint(owner, repo, branch) {
   return `/repos/${owner}/${repo}/git/ref/heads/${cleanGithubBranch(branch).split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(number)));
+}
+
+function stableJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function languageForRepoPath(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const map = {
+    js: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    jsx: "javascript",
+    css: "css",
+    html: "html",
+    json: "json",
+    md: "markdown",
+    yml: "yaml",
+    yaml: "yaml",
+    py: "python",
+    sh: "shell",
+    go: "go",
+    rs: "rust",
+    rb: "ruby",
+    php: "php",
+    java: "java",
+    kt: "kotlin",
+    swift: "swift",
+    sql: "sql",
+    Dockerfile: "dockerfile",
+  };
+  return map[ext] || map[path.basename(filePath)] || ext || "text";
+}
+
+function looksSecretRepoPath(relativePath) {
+  const normalized = String(relativePath || "").toLowerCase();
+  return [
+    ".env",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    "id_rsa",
+    "credentials",
+    "secret",
+    "token",
+    "node_modules/",
+    ".git/",
+    ".povmind/",
+    "dist/",
+    "build/",
+    "coverage/",
+    "output/",
+    ".playwright-cli/",
+    "playwright-report/",
+    "test-results/",
+    ".next/",
+    ".nuxt/",
+    ".cache/",
+    ".ds_store",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock"
+  ].some((pattern) => normalized.includes(pattern));
+}
+
+function repoPathPriority(filePath) {
+  const name = path.basename(filePath).toLowerCase();
+  const lower = String(filePath || "").toLowerCase();
+  if (name === "readme.md") return 0;
+  if (name === "agents.md") return 1;
+  if (name === "package.json") return 2;
+  if (name === "dockerfile") return 3;
+  if (lower.includes(".github/workflows/")) return 4;
+  if (/(^|\/)(app|main|index|server|worker|client)\.(ts|tsx|js|mjs|cjs|py|go|rs|jsx)$/.test(lower)) return 5;
+  if (/\.(ts|tsx|js|mjs|py|go|rs)$/.test(lower)) return 10;
+  if (/\.(md|json|yaml|yml|html|css)$/.test(lower)) return 20;
+  return 40;
+}
+
+function isLikelyTextContent(value) {
+  const text = String(value || "");
+  if (!text) return true;
+  if (text.includes("\u0000")) return false;
+  const sample = text.slice(0, 4096);
+  const control = [...sample].filter((char) => {
+    const code = char.charCodeAt(0);
+    return code < 32 && ![9, 10, 13].includes(code);
+  }).length;
+  return control / Math.max(1, sample.length) < 0.02;
+}
+
+async function scanGithubRepo(token, body) {
+  const { owner, repo, fullName } = repoParts(body.repoFullName);
+  const requestedBranch = cleanGithubBranch(body.branch);
+  const maxFiles = clampNumber(body.maxFiles, 10, 180, 80);
+  const maxBytes = clampNumber(body.maxBytes, 2000, 120000, 45000);
+  const repoMeta = await githubApiOptional(token, `/repos/${owner}/${repo}`);
+  const branch = requestedBranch || cleanGithubBranch(repoMeta.default_branch);
+  const ref = await githubApiOptional(token, refEndpoint(owner, repo, branch));
+  const commitSha = ref.object?.sha;
+  const commit = await githubApiOptional(token, `/repos/${owner}/${repo}/git/commits/${commitSha}`);
+  const tree = await githubApiOptional(token, `/repos/${owner}/${repo}/git/trees/${commit.tree.sha}?recursive=1`);
+  const candidates = (tree.tree || [])
+    .filter((item) => item.type === "blob")
+    .filter((item) => !looksSecretRepoPath(item.path))
+    .filter((item) => Number(item.size || 0) <= maxBytes)
+    .sort((left, right) => repoPathPriority(left.path) - repoPathPriority(right.path) || left.path.localeCompare(right.path))
+    .slice(0, maxFiles);
+
+  const files = [];
+  for (const item of candidates) {
+    const blob = await githubApiOptional(token, `/repos/${owner}/${repo}/git/blobs/${item.sha}`);
+    if (blob.encoding !== "base64") continue;
+    const content = Buffer.from(String(blob.content || "").replace(/\n/g, ""), "base64").toString("utf8");
+    if (!isLikelyTextContent(content)) continue;
+    files.push({
+      path: String(item.path || "").replaceAll("\\", "/"),
+      bytes: Number(item.size || Buffer.byteLength(content)),
+      hash: sha256(content),
+      language: languageForRepoPath(item.path),
+      preview: content.replace(/\s+/g, " ").trim().slice(0, 420),
+      content
+    });
+  }
+
+  const treeHash = sha256(stableJson(files.map((file) => ({
+    path: file.path,
+    bytes: file.bytes,
+    hash: file.hash,
+  }))));
+
+  return {
+    format: "povmind-repo-manifest",
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    source: "github-api",
+    name: repoMeta.name || repo,
+    root: repoMeta.name || repo,
+    localPath: "",
+    remote: repoMeta.clone_url || `https://github.com/${fullName}.git`,
+    htmlUrl: repoMeta.html_url || `https://github.com/${fullName}`,
+    description: repoMeta.description || "",
+    branch,
+    commit: commitSha,
+    dirty: false,
+    treeHash,
+    fileCount: candidates.length,
+    indexedCount: files.length,
+    policy: {
+      mode: "read-only",
+      source: "github-api",
+      secretsExcluded: true,
+      respectsGitignore: false,
+      maxFiles,
+      maxBytes,
+    },
+    files,
+  };
 }
 
 async function pushGithubFiles(token, body) {
@@ -732,6 +921,32 @@ async function routeResponse(req, res) {
     } catch (err) {
       console.error("[vault-pull] error:", err);
       writeJson(res, 500, { ok: false, error: err.message });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/github/scan-repo") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { ...securityHeaders, Allow: "POST" });
+      res.end();
+      return true;
+    }
+    try {
+      const token = githubTokenFromRequest(req) || githubScanToken;
+      const body = await parseJsonBody(req);
+      const repo = await scanGithubRepo(token, body);
+      writeJson(res, 200, { ok: true, repo });
+    } catch (err) {
+      console.error("[github-scan-repo] error:", err);
+      writeJson(res, err.statusCode || 400, {
+        ok: false,
+        error: err.message,
+        message: err.statusCode === 404
+          ? "Repo introuvable ou privé. Connecte GitHub puis relance le scan."
+          : err.statusCode === 403
+            ? "GitHub refuse le scan ou le quota public est dépassé. Connecte GitHub ou configure GITHUB_SCAN_TOKEN côté Cloud Run."
+          : err.message
+      });
     }
     return true;
   }

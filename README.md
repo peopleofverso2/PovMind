@@ -114,6 +114,7 @@ git push -u origin main
 - Registre multi-vault local-first avec création, ouverture et renommage.
 - Snapshots versionnés du vault avec hash global SHA-256.
 - Connexion à un repo de code via manifeste read-only.
+- Scan GitHub en vault de contexte dev : créer un nouveau vault ou enrichir le vault actif avec patterns communs.
 - Synchronisation GitHub du contexte `.povmind/` avec export local, import, OAuth Cloud Run, push et pull.
 - Backlinks de la note active.
 - Liens sortants de la note active.
@@ -140,6 +141,13 @@ npm run repo:manifest -- /chemin/du/repo --output=povmind-repo-manifest.json
 Puis importe le JSON depuis PovMind. Le manifest contient l'identité du repo, la branche, le commit, l'état dirty/clean, un `treeHash`, une politique d'indexation et les fichiers texte autorisés. Les limites par défaut sont `--max-files=220` et `--max-bytes=240000`.
 
 Par défaut, le script exclut les secrets, `.env`, clefs, credentials, tokens, dossiers lourds, caches de test, `node_modules`, `.git`, `output`, et respecte `.gitignore` quand le dossier est un repo Git.
+
+Depuis l'interface, le panneau “GitHub sync” peut aussi scanner un repo GitHub via Cloud Run (`/api/github/scan-repo`) et le traduire en contexte PovMind :
+
+- “Scanner en vault” crée un nouveau vault `Dev - {repo}`.
+- “Enrichir actif” ajoute ou met à jour les notes de contexte dans le vault ouvert.
+- Chaque scan génère les patterns communs : index, carte, entrées techniques, journal de décisions, runbook, tests, sécurité et questions ouvertes.
+- Le token GitHub reste côté serveur quand OAuth est configuré; les repos publics peuvent être scannés en lecture seule.
 
 Quand un repo est lié :
 
