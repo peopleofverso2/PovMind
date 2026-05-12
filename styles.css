@@ -95,10 +95,11 @@ select:focus-visible {
 
 .ribbon-logo {
   margin-bottom: 4px;
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 0.78rem;
-  font-weight: 950;
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  display: block;
+  background: transparent;
 }
 
 .ribbon-btn {
@@ -211,16 +212,12 @@ select:focus-visible {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 38px;
   height: 38px;
-  border-radius: 7px;
-  background: #2c2c2c;
-  color: #ffffff;
-  font-size: 0.8rem;
-  font-weight: 950;
-  line-height: 0.9;
+  object-fit: contain;
+  background: transparent;
+  border-radius: 0;
   box-shadow: none;
 }
 
