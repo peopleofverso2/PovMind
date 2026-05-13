@@ -10,7 +10,7 @@ const repoRoot = path.resolve(repoArg);
 const includeLocalPath = args.includes("--include-local-path");
 const stdout = args.includes("--stdout");
 const maxFiles = numberArg("--max-files", 220);
-const maxBytes = numberArg("--max-bytes", 240000);
+const maxBytes = numberArg("--max-bytes", 500000);
 const outputArg = stringArg("--output");
 const outputPath = outputArg ? path.resolve(outputArg) : path.join(process.cwd(), "povmind-repo-manifest.json");
 
