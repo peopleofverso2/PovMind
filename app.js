@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.11.1";
+const APP_VERSION = "0.12.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -115,6 +115,7 @@ const els = {
     graphCard: document.getElementById("graphCard"),
     graph: document.getElementById("graph"),
     graphFullscreenBtn: document.getElementById("graphFullscreenBtn"),
+    graphRelayoutBtn: document.getElementById("graphRelayoutBtn"),
     graphResizeHandle: document.getElementById("graphResizeHandle"),
     toast: document.getElementById("toast"),
     commandPalette: document.getElementById("commandPalette"),
@@ -2036,40 +2037,127 @@ function persistGraphPositions() {
         positions: state.graphPositions,
     }));
 }
-function buildDefaultGraphPositions(nodes) {
+// Force-directed defaults — repulsion between every pair, attraction along
+// edges, gentle gravity toward center. The active note is pinned at the
+// centre so the user's current focus stays in view.
+const GRAPH_FORCE_DEFAULTS = {
+    repelStrength: 1400,
+    linkStrength: 0.05,
+    linkRestLength: 75,
+    gravity: 0.02,
+    damping: 0.85,
+    iterations: 280,
+};
+function forceDirectedGraphPositions(nodes, edges, settings = GRAPH_FORCE_DEFAULTS) {
     const width = 540;
     const height = 380;
     const cx = width / 2;
     const cy = height / 2;
     const positions = new Map();
-    const activeIndex = nodes.findIndex((node) => node.id === state.activeId);
-    const ordered = activeIndex > -1 ? [nodes[activeIndex], ...nodes.filter((_, index) => index !== activeIndex)] : nodes;
-    if (ordered.length === 1) {
-        positions.set(ordered[0].id, { x: cx, y: cy });
+    if (nodes.length === 0)
+        return positions;
+    if (nodes.length === 1) {
+        positions.set(nodes[0].id, { x: cx, y: cy });
         return positions;
     }
-    ordered.forEach((node, index) => {
-        if (node.id === state.activeId) {
-            positions.set(node.id, { x: cx, y: cy });
-            return;
-        }
-        const ringIndex = index - (activeIndex > -1 ? 1 : 0);
-        const count = ordered.length - (activeIndex > -1 ? 1 : 0);
-        const angle = (ringIndex / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2;
-        const radius = count > 18 ? 156 : 128;
-        const wobble = (ringIndex % 3) * 18;
-        positions.set(node.id, {
-            x: cx + Math.cos(angle) * (radius + wobble),
-            y: cy + Math.sin(angle) * (radius + wobble * 0.55),
-        });
+    // Deterministic initial layout: golden-angle spiral from the centre. Same
+    // seed across renders means the same vault gets the same starting shape,
+    // so re-running the sim doesn't jitter wildly between sessions.
+    const pos = nodes.map((n, i) => {
+        if (n.id === state.activeId)
+            return { x: cx, y: cy };
+        const angle = i * 2.39996; // golden angle in radians
+        const r = 60 + Math.sqrt(i) * 18;
+        return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     });
+    const vel = nodes.map(() => ({ x: 0, y: 0 }));
+    const nodeIndex = new Map();
+    nodes.forEach((n, i) => nodeIndex.set(n.id, i));
+    const pinned = nodes.map((n) => n.id === state.activeId);
+    for (let iter = 0; iter < settings.iterations; iter++) {
+        // Repulsion across all pairs (O(n²) — fine for n ≤ 80).
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const dx = pos[j].x - pos[i].x;
+                const dy = pos[j].y - pos[i].y;
+                const distSq = dx * dx + dy * dy + 0.01;
+                const dist = Math.sqrt(distSq);
+                const f = settings.repelStrength / distSq;
+                const fx = (dx / dist) * f;
+                const fy = (dy / dist) * f;
+                vel[i].x -= fx;
+                vel[i].y -= fy;
+                vel[j].x += fx;
+                vel[j].y += fy;
+            }
+        }
+        // Attraction along edges (linear spring toward rest length).
+        for (const edge of edges) {
+            const i = nodeIndex.get(edge.from);
+            const j = nodeIndex.get(edge.to);
+            if (i === undefined || j === undefined)
+                continue;
+            const dx = pos[j].x - pos[i].x;
+            const dy = pos[j].y - pos[i].y;
+            const dist = Math.sqrt(dx * dx + dy * dy + 0.01);
+            const f = (dist - settings.linkRestLength) * settings.linkStrength;
+            const fx = (dx / dist) * f;
+            const fy = (dy / dist) * f;
+            vel[i].x += fx;
+            vel[i].y += fy;
+            vel[j].x -= fx;
+            vel[j].y -= fy;
+        }
+        // Gravity + damping + integrate. Pinned nodes (active) stay put.
+        for (let i = 0; i < nodes.length; i++) {
+            if (pinned[i]) {
+                vel[i].x = 0;
+                vel[i].y = 0;
+                pos[i].x = cx;
+                pos[i].y = cy;
+                continue;
+            }
+            vel[i].x += (cx - pos[i].x) * settings.gravity;
+            vel[i].y += (cy - pos[i].y) * settings.gravity;
+            vel[i].x *= settings.damping;
+            vel[i].y *= settings.damping;
+            pos[i].x += vel[i].x;
+            pos[i].y += vel[i].y;
+            pos[i].x = clamp(pos[i].x, 28, 512);
+            pos[i].y = clamp(pos[i].y, 32, 348);
+        }
+    }
+    nodes.forEach((n, i) => positions.set(n.id, { x: pos[i].x, y: pos[i].y }));
     return positions;
 }
-function resolveGraphPositions(nodes) {
-    const defaults = buildDefaultGraphPositions(nodes);
+function buildDefaultGraphPositions(nodes, edges = []) {
+    return forceDirectedGraphPositions(nodes, edges);
+}
+function resolveGraphPositions(nodes, edges = []) {
+    const defaults = buildDefaultGraphPositions(nodes, edges);
     const resolved = {};
+    let newlyPlaced = 0;
     for (const node of nodes) {
-        resolved[node.id] = clampGraphPosition(state.graphPositions[node.id]) || defaults.get(node.id);
+        const stored = clampGraphPosition(state.graphPositions[node.id]);
+        if (stored) {
+            resolved[node.id] = stored;
+        }
+        else {
+            const computed = defaults.get(node.id);
+            if (computed) {
+                resolved[node.id] = computed;
+                // Persist the freshly computed position so the sim doesn't re-run on
+                // every render for the same node set. User drags overwrite as before.
+                state.graphPositions[node.id] = computed;
+                newlyPlaced++;
+            }
+        }
+    }
+    if (newlyPlaced > 0) {
+        try {
+            persistGraphPositions();
+        }
+        catch (_) { /* ignore localStorage quota */ }
     }
     state.graphRuntimePositions = resolved;
     return new Map(Object.entries(resolved));
@@ -2267,7 +2355,7 @@ function renderGraph() {
         state.graphRuntimePositions = {};
         return;
     }
-    const positions = resolveGraphPositions(nodes);
+    const positions = resolveGraphPositions(nodes, edges);
     const visibleIds = new Set(nodes.map((node) => node.id));
     const maxDegree = Math.max(1, ...nodes.map((node) => Number(node.degree || 0)));
     const lineMarkup = edges
@@ -5457,6 +5545,16 @@ function bindEvents() {
         openGraphNode(node.dataset.nodeId, node.dataset.noteTitle);
     });
     els.graphFullscreenBtn.addEventListener("click", () => toggleGraphFullscreen());
+    if (els.graphRelayoutBtn) {
+        els.graphRelayoutBtn.addEventListener("click", () => {
+            // Wipe stored positions so resolveGraphPositions re-runs the
+            // force-directed sim from scratch. Persisted to localStorage so
+            // the reset survives reload.
+            state.graphPositions = {};
+            persistGraphPositions();
+            renderGraph();
+        });
+    }
     els.graphResizeHandle.addEventListener("pointerdown", (event) => startLayoutResize("graph", event));
     els.graphResizeHandle.addEventListener("dblclick", () => resetPanelLayout("graph"));
     els.graphResizeHandle.addEventListener("keydown", (event) => handleResizerKeydown("graph", event));

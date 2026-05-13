@@ -1,4 +1,4 @@
-const CACHE_NAME = "povmind-cache-v0.11.1";
+const CACHE_NAME = "povmind-cache-v0.12.0";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./robots.txt", "./assets/icon.svg"];
 
 self.addEventListener("install", (event) => {
