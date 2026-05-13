@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.11.0";
+const APP_VERSION = "0.11.1";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -2205,6 +2205,22 @@ function revealActiveNoteFromGraph() {
             toast(`Note ouverte : ${note.title}`);
     });
 }
+function graphNodeDegreeMap(edges) {
+    const degree = new Map();
+    for (const edge of edges) {
+        degree.set(edge.from, (degree.get(edge.from) || 0) + 1);
+        degree.set(edge.to, (degree.get(edge.to) || 0) + 1);
+    }
+    return degree;
+}
+function graphNodeRadius(node, isActive, maxDegree) {
+    const degree = Number(node.degree || 0);
+    const normalized = maxDegree > 0 ? Math.sqrt(degree) / Math.sqrt(maxDegree) : 0;
+    const base = node.missing ? 7 : 8;
+    const spread = node.missing ? 6 : 18;
+    const radius = base + normalized * spread + (isActive ? 5 : 0);
+    return clamp(radius, node.missing ? 7 : 8, isActive ? 31 : 26);
+}
 function buildGraph() {
     const nodes = new Map();
     const edges = [];
@@ -2227,7 +2243,20 @@ function buildGraph() {
             }
         }
     }
-    return { nodes: [...nodes.values()].slice(0, MAX_GRAPH_NODES), edges };
+    const degree = graphNodeDegreeMap(edges);
+    const rankedNodes = [...nodes.values()]
+        .map((node) => ({ ...node, degree: degree.get(node.id) || 0 }))
+        .sort((a, b) => {
+        if (a.id === state.activeId)
+            return -1;
+        if (b.id === state.activeId)
+            return 1;
+        if (a.missing !== b.missing)
+            return a.missing ? 1 : -1;
+        return b.degree - a.degree || a.title.localeCompare(b.title, "fr");
+    })
+        .slice(0, MAX_GRAPH_NODES);
+    return { nodes: rankedNodes, edges };
 }
 function renderGraph() {
     const { nodes, edges } = buildGraph();
@@ -2240,6 +2269,7 @@ function renderGraph() {
     }
     const positions = resolveGraphPositions(nodes);
     const visibleIds = new Set(nodes.map((node) => node.id));
+    const maxDegree = Math.max(1, ...nodes.map((node) => Number(node.degree || 0)));
     const lineMarkup = edges
         .filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to) && positions.has(edge.from) && positions.has(edge.to))
         .map((edge) => {
@@ -2254,16 +2284,18 @@ function renderGraph() {
         const pos = positions.get(node.id);
         const isActive = node.id === state.activeId;
         const classes = ["node", isActive ? "active" : "", node.missing ? "missing" : ""].filter(Boolean).join(" ");
-        const label = clampText(node.title, 18);
-        const radius = isActive ? 14 : node.missing ? 10 : 11;
+        const radius = graphNodeRadius(node, isActive, maxDegree);
+        const labelLimit = radius >= 22 ? 26 : radius >= 15 ? 20 : 14;
+        const label = clampText(node.title, labelLimit);
+        const degreeLabel = `${node.degree || 0} lien${node.degree > 1 ? "s" : ""}`;
         const actionLabel = node.missing ? `Créer « ${node.title} »` : `Ouvrir l'article « ${node.title} »`;
         return `
-        <g class="${classes}" role="${node.missing ? "button" : "link"}" tabindex="0" aria-label="${attr(actionLabel)}" data-node-id="${attr(node.id)}" data-note-title="${attr(node.title)}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})">
-          <title>${escapeHtml(actionLabel)}</title>
+        <g class="${classes}" role="${node.missing ? "button" : "link"}" tabindex="0" aria-label="${attr(`${actionLabel} · ${degreeLabel}`)}" data-node-id="${attr(node.id)}" data-note-title="${attr(node.title)}" data-degree="${attr(node.degree || 0)}" transform="translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})">
+          <title>${escapeHtml(`${actionLabel} · ${degreeLabel}`)}</title>
           <circle class="node-hitbox" r="${radius + 17}"></circle>
-          <circle class="node-glow" r="${radius + 8}"></circle>
-          <circle class="node-core" r="${radius}"></circle>
-          <text y="${radius + 16}">${escapeHtml(label)}</text>
+          <circle class="node-glow" r="${radius + Math.max(7, radius * 0.42)}"></circle>
+          <circle class="node-core" r="${radius.toFixed(1)}"></circle>
+          <text y="${(radius + 16).toFixed(1)}">${escapeHtml(label)}</text>
         </g>`;
     })
         .join("");
