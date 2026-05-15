@@ -6065,14 +6065,28 @@ async function maybeImportServerVault(): Promise<void> {
 
   if (typeof (toast as any) === "function") (toast as any)("Import du vault depuis povchat…");
   try {
+    // sync.html stores a bearer token under "povmind:sync:token". Reuse
+    // it so /api/vaults/:id/pull authenticates the same way as doPull().
+    const syncToken = (localStorage.getItem("povmind:sync:token") || "").trim();
+    const headers: Record<string, string> = {};
+    if (syncToken) headers["Authorization"] = "Bearer " + syncToken;
     const resp = await fetch(`/api/vaults/${encodeURIComponent(serverVaultId)}/pull`, {
       credentials: "include",
+      headers,
     });
     const data: any = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) {
-      if (typeof (toast as any) === "function") (toast as any)(`Import refusé (${resp.status}). Vérifie que le serveur connaît ce vault.`);
+      if (resp.status === 401 && typeof (toast as any) === "function") {
+        (toast as any)("Import refusé : configure d'abord ton token sur /sync.html, puis reviens cliquer le lien.");
+      } else if (typeof (toast as any) === "function") {
+        (toast as any)(`Import refusé (HTTP ${resp.status}).`);
+      }
+      // Stash the requested id so /sync.html can offer a retry shortcut.
+      try { localStorage.setItem("povmind:import:pending", serverVaultId); } catch { /* ignore */ }
       return;
     }
+    // Clear any previously-stashed pending import on success.
+    try { localStorage.removeItem("povmind:import:pending"); } catch { /* ignore */ }
     const v = data.vault || {};
     const name = String(v.name || "Vault importé");
     const serverNotes: any[] = Array.isArray(v.notes) ? v.notes : [];
