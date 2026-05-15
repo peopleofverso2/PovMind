@@ -5641,3 +5641,101 @@ bindEvents();
 renderAll();
 refreshGithubStatus();
 registerServiceWorker();
+// ----------------------------------------------------------------------
+// One-shot server-vault import — povchat-created vaults that aren't
+// yet in this browser's localStorage. Triggered by URL parameter
+// `?import-vault=<id>` (e.g. povchat surfaces a "Open in PovMind" link).
+//
+// What it does:
+//   1. Parse the param.
+//   2. If the vault id is already in our local registry, just activate
+//      it (and clean the URL). No-op data-wise.
+//   3. Otherwise GET /api/vaults/<id>/pull to fetch server-side
+//      metadata + notes.
+//   4. Register the vault locally (push into vaultRegistry), persist
+//      the notes payload at `vaultStorageKey("notes")`, set as active.
+//   5. Reload state from local + render. Strip the param from the URL.
+// ----------------------------------------------------------------------
+async function maybeImportServerVault() {
+    let params;
+    try {
+        params = new URLSearchParams(window.location.search);
+    }
+    catch {
+        return;
+    }
+    const serverVaultId = params.get("import-vault");
+    if (!serverVaultId)
+        return;
+    // Strip the param straight away so reloads don't re-trigger.
+    try {
+        const cleaned = new URL(window.location.href);
+        cleaned.searchParams.delete("import-vault");
+        history.replaceState(null, "", cleaned.toString());
+    }
+    catch { /* ignore */ }
+    const known = vaultRegistry.vaults.find((v) => v.id === serverVaultId);
+    if (known) {
+        window.activeVaultId = serverVaultId;
+        vaultRegistry.activeId = serverVaultId;
+        persistVaultRegistry();
+        loadActiveVaultState();
+        renderAll();
+        if (typeof toast === "function")
+            toast(`Vault « ${known.name} » activé.`);
+        return;
+    }
+    if (typeof toast === "function")
+        toast("Import du vault depuis povchat…");
+    try {
+        const resp = await fetch(`/api/vaults/${encodeURIComponent(serverVaultId)}/pull`, {
+            credentials: "include",
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) {
+            if (typeof toast === "function")
+                toast(`Import refusé (${resp.status}). Vérifie que le serveur connaît ce vault.`);
+            return;
+        }
+        const v = data.vault || {};
+        const name = String(v.name || "Vault importé");
+        const serverNotes = Array.isArray(v.notes) ? v.notes : [];
+        const now = nowIso();
+        const localNotes = serverNotes.map((n) => ({
+            id: uid(),
+            title: String(n.title || "Sans titre"),
+            folder: "",
+            body: String(n.body || ""),
+            createdAt: n.updated_at || now,
+            updatedAt: n.updated_at || now,
+        }));
+        vaultRegistry.vaults.unshift({
+            id: serverVaultId,
+            name,
+            createdAt: now,
+            updatedAt: now,
+            noteCount: localNotes.length,
+            tokenSealed: false,
+        });
+        window.activeVaultId = serverVaultId;
+        vaultRegistry.activeId = serverVaultId;
+        persistVaultRegistry();
+        const notesPayload = {
+            version: 1,
+            vaultId: serverVaultId,
+            notes: localNotes,
+            activeId: localNotes[0]?.id || null,
+        };
+        localStorage.setItem(vaultStorageKey("notes", serverVaultId), JSON.stringify(notesPayload, null, 2));
+        loadActiveVaultState();
+        renderAll();
+        if (typeof toast === "function")
+            toast(`Vault « ${name} » importé (${localNotes.length} note(s)).`);
+    }
+    catch (err) {
+        console.error("[import-vault] failed:", err);
+        if (typeof toast === "function")
+            toast("Échec de l'import. Réseau ou auth ?");
+    }
+}
+maybeImportServerVault();
