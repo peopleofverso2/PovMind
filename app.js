@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.13.0";
+const APP_VERSION = "0.14.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -173,6 +173,7 @@ const els = {
     cycleMetrics: document.getElementById("cycleMetrics"),
     runDayCycleBtn: document.getElementById("runDayCycleBtn"),
     runNightCycleBtn: document.getElementById("runNightCycleBtn"),
+    runWakeCycleBtn: document.getElementById("runWakeCycleBtn"),
     exportCognitiveCronBtn: document.getElementById("exportCognitiveCronBtn"),
     cognitiveCyclesList: document.getElementById("cognitiveCyclesList"),
     suggestionsList: document.getElementById("suggestionsList"),
@@ -637,6 +638,11 @@ function persistSnapshots() {
 }
 function latestSnapshot() {
     return state.snapshots[0] || null;
+}
+function previousSnapshotFor(snapshot = latestSnapshot()) {
+    if (!snapshot)
+        return null;
+    return state.snapshots.find((item) => item.id !== snapshot.id) || null;
 }
 function cleanRepoFile(file) {
     if (!file || typeof file !== "object")
@@ -1328,7 +1334,7 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
         {
             title: "PovMind - Snapshots du vault",
             folder: "Documentation PovMind",
-            body: `# PovMind - Snapshots du vault\n\nUn snapshot fige l'état exact du vault à un instant donné. Le journal raconte le pourquoi; le snapshot conserve le quoi.\n\n## Contenu d'un snapshot\n\n- Notes complètes.\n- Note active et favoris.\n- Graphe et positions de nœuds.\n- Layout et mode de vue.\n- Manifest Codex/MCP.\n- Manifest repo lié, commit et \`repoTreeHash\`.\n- Politique token assistant, sans secret complet.\n- Hash global \`contentHash\` calculé sur un JSON canonique.\n\n## Rôle du hash global\n\nLe hash permet à un assistant de dire : “je travaille sur le contexte exact \`sha256:...\`”. Si le vault change, le prochain snapshot aura un autre hash.\n\n## Relation avec le journal\n\nLe journal reste utile pour les décisions humaines. Le snapshot sert de preuve d'état et de point de restauration/export.\n\n## À améliorer\n\n- Comparer deux snapshots.\n- Restaurer un snapshot après confirmation.\n- Créer un changelog depuis le journal.\n- Ajouter des snapshots signés avec une clef du vault.\n\n#povmind #snapshot #versioning`,
+            body: `# PovMind - Snapshots du vault\n\nUn snapshot fige l'état exact du vault à un instant donné. Le journal raconte le pourquoi; le snapshot conserve le quoi.\n\n## Contenu d'un snapshot\n\n- Notes complètes.\n- Note active et favoris.\n- Graphe et positions de nœuds.\n- Layout et mode de vue.\n- Manifest Codex/MCP.\n- Manifest repo lié, commit et \`repoTreeHash\`.\n- Politique token assistant, sans secret complet.\n- Hash global \`contentHash\` calculé sur un JSON canonique.\n\n## Rôle du hash global\n\nLe hash permet à un assistant de dire : “je travaille sur le contexte exact \`sha256:...\`”. Si le vault change, le prochain snapshot aura un autre hash.\n\n## Delta\n\nLe cycle Réveil compare les deux derniers snapshots et produit un agenda humain : ajouts, modifications, retraits, changement de repo et prochaine action à valider.\n\n## Relation avec le journal\n\nLe journal reste utile pour les décisions humaines. Le snapshot sert de preuve d'état et de point de restauration/export.\n\n## À améliorer\n\n- Restaurer un snapshot après confirmation.\n- Créer un changelog depuis le journal.\n- Ajouter des snapshots signés avec une clef du vault.\n- Comparer un snapshot avec un commit repo.\n\n#povmind #snapshot #versioning`,
         },
         {
             title: "PovMind - Code repo",
@@ -1363,7 +1369,7 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
         {
             title: "PovMind - Boucle cognitive",
             folder: "Documentation PovMind",
-            body: `# PovMind - Boucle cognitive\n\nLa boucle cognitive transforme le vault en système auto-apprenant traçable sans perdre le contrôle humain.\n\n## Phases\n\n- Jour : capture, action, contexte court, analyse déterministe, snapshot.\n- Nuit : compression, notes froides, consolidation symbolique, mode rêve.\n- Réveil : validation humaine des suggestions, feedback accepté/refusé, prochaine action.\n\n## Score\n\nLe ratio d'auto-amélioration agrège la couverture mémoire, la densité de liens, la fraîcheur du snapshot, le feedback humain, l'ancrage repo, la continuité des cycles, la pression de suggestions et les notes froides.\n\n## Cron GitHub\n\nL'export de contexte ajoute :\n\n- \`.povmind/automation/cognitive-loop.json\`\n- \`.povmind/automation/cognitive-loop.md\`\n- \`.github/workflows/povmind-cognitive-loop.yml\`\n\nLe cron GitHub audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne merge jamais automatiquement les sorties de rêve.\n\n## Garde-fous\n\n- Le rêve produit des hypothèses, pas des décisions.\n- Le reward signal vient du feedback humain.\n- Le snapshot fige le quoi; le journal explique le pourquoi.\n- Le repo reste la source exécutable.\n\nVoir [[PovMind - GitHub sync]], [[PovMind - Snapshots du vault]] et [[PovMind - Backlog contexte]]. #cycle-cognitif #auto-apprentissage #cron`,
+            body: `# PovMind - Boucle cognitive\n\nLa boucle cognitive transforme le vault en système auto-apprenant traçable sans perdre le contrôle humain.\n\n## Phases\n\n- Jour : capture, action, contexte court, analyse déterministe, snapshot.\n- Nuit : compression, notes froides, consolidation symbolique, mode rêve.\n- Réveil : agenda de validation, delta snapshots, feedback accepté/refusé, prochaine action.\n\n## Score\n\nLe ratio d'auto-amélioration agrège la couverture mémoire, la densité de liens, la fraîcheur du snapshot, le feedback humain, l'ancrage repo, la continuité des cycles, la pression de suggestions et les notes froides.\n\n## Réveil\n\nLe réveil transforme les sorties nocturnes en décisions : relire le delta, accepter ou rejeter les propositions, puis créer un nouveau snapshot après arbitrage. C'est la couche reward signal de PovMind.\n\n## Cron GitHub\n\nL'export de contexte ajoute :\n\n- \`.povmind/automation/cognitive-loop.json\`\n- \`.povmind/automation/cognitive-loop.md\`\n- \`.github/workflows/povmind-cognitive-loop.yml\`\n\nLe cron GitHub audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne merge jamais automatiquement les sorties de rêve.\n\n## Garde-fous\n\n- Le rêve produit des hypothèses, pas des décisions.\n- Le reward signal vient du feedback humain.\n- Le snapshot fige le quoi; le journal explique le pourquoi.\n- Le repo reste la source exécutable.\n\nVoir [[PovMind - GitHub sync]], [[PovMind - Snapshots du vault]] et [[PovMind - Backlog contexte]]. #cycle-cognitif #auto-apprentissage #cron`,
         },
         {
             title: "PovMind - Backlog contexte",
@@ -1383,6 +1389,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Chiffrer localement notes, favoris et snapshots avec AES-GCM via passphrase.
 - [x] Importer un dossier Obsidian en nouveau vault PovMind avec dossiers et liens wiki.
 - [x] Scanner un repo GitHub en vault dev ou enrichir le vault actif avec des patterns communs.
+- [x] Ajouter le cycle Réveil avec agenda de validation et delta snapshots.
 
 ## À prioriser
 
@@ -1392,7 +1399,6 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [ ] Exporter/restaurer tout le registre multivault.
 - [ ] Tester l'export MCP avec un vrai client assistant.
 - [ ] Ajouter un écran de statut pour expliquer ce que le token protège.
-- [ ] Comparer deux snapshots de vault.
 - [ ] Comparer un snapshot et un commit repo.
 - [ ] Ajouter un import/export de bundles MCP.
 - [ ] Ajouter rotation de passphrase et révocation fine par assistant.
@@ -2209,6 +2215,127 @@ function recurrentSignals(limit = 8) {
         .sort((a, b) => Number(b.count) - Number(a.count) || a.label.localeCompare(b.label, "fr"))
         .slice(0, limit);
 }
+function snapshotContent(snapshot) {
+    const content = snapshot?.payload?.content;
+    return content && typeof content === "object" ? content : null;
+}
+function snapshotSummary(snapshot) {
+    const content = snapshotContent(snapshot);
+    return snapshot?.summary && typeof snapshot.summary === "object"
+        ? snapshot.summary
+        : content?.summary && typeof content.summary === "object"
+            ? content.summary
+            : {};
+}
+function snapshotNotes(snapshot) {
+    const notes = snapshotContent(snapshot)?.notes;
+    return Array.isArray(notes) ? notes.filter((note) => note && typeof note === "object") : [];
+}
+function snapshotNoteKey(note) {
+    return String(note.id || normalizeTitle(note.title || "") || safeFilename(note.title || "note"));
+}
+function snapshotNoteFingerprint(note) {
+    return stableJson({
+        title: String(note.title || ""),
+        folder: String(note.folder || ROOT_FOLDER),
+        body: String(note.body || ""),
+        memoryTypes: Array.isArray(note.memoryTypes) ? note.memoryTypes.map(String).sort() : [],
+    });
+}
+function snapshotNoteSummary(note) {
+    return {
+        id: String(note.id || ""),
+        title: String(note.title || "Sans titre"),
+        folder: String(note.folder || ROOT_FOLDER),
+        memoryTypes: Array.isArray(note.memoryTypes) ? note.memoryTypes.map(String) : [],
+    };
+}
+function snapshotNumber(summary, key, fallback = 0) {
+    return finiteNumber(summary?.[key]) ?? fallback;
+}
+function compareSnapshots(current, previous = previousSnapshotFor(current)) {
+    const currentNotes = new Map(snapshotNotes(current).map((note) => [snapshotNoteKey(note), note]));
+    const previousNotes = new Map(snapshotNotes(previous).map((note) => [snapshotNoteKey(note), note]));
+    const currentSummary = snapshotSummary(current);
+    const previousSummary = snapshotSummary(previous);
+    const added = [...currentNotes.entries()]
+        .filter(([key]) => !previousNotes.has(key))
+        .map(([, note]) => snapshotNoteSummary(note));
+    const removed = [...previousNotes.entries()]
+        .filter(([key]) => !currentNotes.has(key))
+        .map(([, note]) => snapshotNoteSummary(note));
+    const updated = [...currentNotes.entries()]
+        .filter(([key, note]) => {
+        const before = previousNotes.get(key);
+        return Boolean(before && snapshotNoteFingerprint(note) !== snapshotNoteFingerprint(before));
+    })
+        .map(([, note]) => snapshotNoteSummary(note));
+    const currentNoteCount = snapshotNumber(currentSummary, "noteCount", currentNotes.size);
+    const previousNoteCount = snapshotNumber(previousSummary, "noteCount", previousNotes.size);
+    const currentLinkCount = snapshotNumber(currentSummary, "linkCount", 0);
+    const previousLinkCount = snapshotNumber(previousSummary, "linkCount", 0);
+    const repoTreeHashFrom = String(previousSummary.repoTreeHash || "");
+    const repoTreeHashTo = String(currentSummary.repoTreeHash || "");
+    return {
+        from: previous?.id || "",
+        to: current?.id || "",
+        fromHash: previous?.hash || "",
+        toHash: current?.hash || "",
+        baseline: !previous,
+        addedCount: added.length,
+        removedCount: removed.length,
+        updatedCount: updated.length,
+        noteDelta: currentNoteCount - previousNoteCount,
+        linkDelta: currentLinkCount - previousLinkCount,
+        repoChanged: repoTreeHashFrom !== repoTreeHashTo,
+        repoTreeHashFrom,
+        repoTreeHashTo,
+        githubChanged: Boolean(previous) && Boolean(previousSummary.githubLinked) !== Boolean(currentSummary.githubLinked),
+        added: added.slice(0, 24),
+        removed: removed.slice(0, 24),
+        updated: updated.slice(0, 24),
+    };
+}
+function snapshotDeltaSummary(delta) {
+    if (!delta)
+        return "Aucun delta disponible.";
+    if (delta.baseline) {
+        return `Snapshot de référence : ${Number(delta.addedCount || 0)} note(s), ${Number(delta.linkDelta || 0)} lien(s) depuis zéro.`;
+    }
+    const noteDelta = Number(delta.noteDelta || 0);
+    const linkDelta = Number(delta.linkDelta || 0);
+    const parts = [
+        `${Number(delta.addedCount || 0)} ajout(s)`,
+        `${Number(delta.updatedCount || 0)} modification(s)`,
+        `${Number(delta.removedCount || 0)} retrait(s)`,
+        `notes ${noteDelta >= 0 ? "+" : ""}${noteDelta}`,
+        `liens ${linkDelta >= 0 ? "+" : ""}${linkDelta}`,
+    ];
+    if (delta.repoChanged)
+        parts.push("repo changé");
+    return parts.join(" · ");
+}
+function snapshotDeltaItemsMarkdown(title, items) {
+    const rows = Array.isArray(items) ? items : [];
+    return `### ${title}\n\n${rows.length
+        ? rows.slice(0, 10).map((item) => `- [[${item.title || "Sans titre"}]] (${item.folder || ROOT_FOLDER})`).join("\n")
+        : "- Aucun."}\n`;
+}
+function formatSnapshotDeltaMarkdown(delta) {
+    if (!delta)
+        return "Aucun delta disponible.";
+    const hashes = delta.fromHash || delta.toHash
+        ? `\n- De : ${delta.fromHash ? `\`${shortHash(delta.fromHash)}\`` : "aucun"}\n- Vers : ${delta.toHash ? `\`${shortHash(delta.toHash)}\`` : "aucun"}`
+        : "";
+    const repo = delta.repoChanged
+        ? `\n- Repo : \`${shortHash(delta.repoTreeHashFrom)}\` -> \`${shortHash(delta.repoTreeHashTo)}\``
+        : "";
+    return `## Delta snapshots\n\n` +
+        `- Résumé : ${snapshotDeltaSummary(delta)}${hashes}${repo}\n\n` +
+        `${snapshotDeltaItemsMarkdown("Ajouts", delta.added)}` +
+        `\n${snapshotDeltaItemsMarkdown("Modifications", delta.updated)}` +
+        `\n${snapshotDeltaItemsMarkdown("Retraits", delta.removed)}`;
+}
 function calculateLearningScore() {
     const stats = graphStats();
     const totalNotes = Math.max(1, state.notes.length);
@@ -2256,6 +2383,8 @@ function cyclePhaseLabel(phase) {
         return "Jour";
     if (phase === "night")
         return "Nuit";
+    if (phase === "wake")
+        return "Réveil";
     if (phase === "cron")
         return "Cron";
     return String(phase || "Cycle");
@@ -2294,6 +2423,37 @@ function createNightSynthesisNote(run = latestEnrichmentRun()) {
         `## Au réveil\n\n${pending.map((proposal) => `- [ ] ${proposal.title} — ${proposal.detail}`).join("\n") || "- [ ] Relancer une analyse après les prochaines notes."}\n\n` +
         `#reve #consolidation #memoire-symbolique #auto-apprentissage`;
     return upsertSystemNote(title, "Mémoire symbolique", body, true);
+}
+function createWakeAgendaNote(run = latestEnrichmentRun(), snapshot = latestSnapshot(), delta = compareSnapshots(snapshot)) {
+    const score = calculateLearningScore();
+    const pending = (run?.proposals || []).filter((proposal) => proposal.status === "pending");
+    const lastCycle = state.cognitiveCycles[0];
+    const feedback = state.learningMemory?.feedback || {};
+    const title = `Agenda réveil - ${formatLocalDate(new Date())}`;
+    const pendingRows = pending.slice(0, 12).map((proposal) => `- [ ] ${proposal.title} (${Math.round(Number(proposal.confidence || 0) * 100)}%, ${proposal.risk})\n` +
+        `  - ${proposal.detail}\n` +
+        `  - Décision : accepter / ignorer / transformer en action`).join("\n");
+    const lastCycleRows = lastCycle
+        ? `- Dernier cycle : ${cyclePhaseLabel(lastCycle.phase)} (${formatDate(lastCycle.createdAt)})\n` +
+            `- Synthèse : ${lastCycle.summary || "Cycle enregistré."}\n` +
+            `${(lastCycle.outputs || []).slice(0, 5).map((output) => `- Sortie : ${output.type} ${output.title || output.id || ""}`.trim()).join("\n")}`
+        : "- Aucun cycle précédent.";
+    const body = `# ${title}\n\n` +
+        `Phase : réveil / arbitrage humain / reward signal.\n\n` +
+        `## Score\n\n` +
+        `- Ratio d'auto-amélioration : ${Math.round(Number(score.ratio || 0) * 100)}%\n` +
+        `- Suggestions ouvertes : ${pending.length}\n` +
+        `- Feedback accepté : ${Number(feedback.accepted || 0)}\n` +
+        `- Feedback refusé : ${Number(feedback.rejected || 0)}\n\n` +
+        `${formatSnapshotDeltaMarkdown(delta)}\n\n` +
+        `## À valider\n\n${pendingRows || "- [ ] Rien d'urgent. Choisir une prochaine action volontaire."}\n\n` +
+        `## Trace du cycle précédent\n\n${lastCycleRows}\n\n` +
+        `## Prochaine action\n\n` +
+        `- [ ] Valider au moins une suggestion ou noter pourquoi elle est rejetée.\n` +
+        `- [ ] Convertir le meilleur signal en note stratégique ou agentique.\n` +
+        `- [ ] Créer un nouveau snapshot après arbitrage.\n\n` +
+        `#reveil #reward-signal #memoire-agentique #snapshot-delta`;
+    return upsertSystemNote(title, "Mémoire agentique", body, true);
 }
 function createCognitiveCycleReport(cycle, run, snapshot) {
     const score = cycle.score || calculateLearningScore();
@@ -2367,8 +2527,40 @@ async function runCognitiveNightCycle() {
     toast(`Cycle nuit enregistré : ${Math.round(score.ratio * 100)}%.`);
     return cycle;
 }
+async function runCognitiveWakeCycle() {
+    if (!requireVaultUnlocked("lancer le cycle réveil"))
+        return null;
+    const run = latestEnrichmentRun() || runDeterministicEnrichment(false);
+    let referenceSnapshot = latestSnapshot();
+    if (!referenceSnapshot || snapshotNeedsRefresh()) {
+        referenceSnapshot = await createVaultSnapshot({ silent: true });
+    }
+    const delta = compareSnapshots(referenceSnapshot, previousSnapshotFor(referenceSnapshot));
+    const agenda = createWakeAgendaNote(run, referenceSnapshot, delta);
+    const snapshot = await createVaultSnapshot({ silent: true });
+    const score = calculateLearningScore();
+    const cycle = recordCognitiveCycle({
+        phase: "wake",
+        runId: run?.id || "",
+        snapshotId: snapshot?.id || referenceSnapshot?.id || "",
+        snapshotHash: snapshot?.hash || referenceSnapshot?.hash || "",
+        score,
+        summary: "Réveil cognitif : delta snapshots, validation humaine, reward signal et prochaine action.",
+        outputs: [
+            agenda ? { type: "note", title: agenda.title, id: agenda.id } : null,
+            snapshot ? { type: "snapshot", title: snapshot.id, hash: snapshot.hash } : null,
+            { type: "delta", title: snapshotDeltaSummary(delta), added: delta.addedCount, updated: delta.updatedCount, removed: delta.removedCount },
+            run ? { type: "run", title: run.id, proposals: run.proposals.length } : null,
+        ].filter(Boolean),
+    });
+    createCognitiveCycleReport(cycle, run, snapshot || referenceSnapshot);
+    renderAll();
+    toast(`Cycle réveil prêt : ${snapshotDeltaSummary(delta)}.`);
+    return cycle;
+}
 function makeCognitiveLoopSpec(snapshot = latestSnapshot(), score = calculateLearningScore()) {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+    const latestDelta = snapshot ? compareSnapshots(snapshot, previousSnapshotFor(snapshot)) : null;
     return {
         format: "povmind-cognitive-loop",
         version: 1,
@@ -2377,12 +2569,13 @@ function makeCognitiveLoopSpec(snapshot = latestSnapshot(), score = calculateLea
         schedule: {
             dayCycle: "manual or after meaningful notes/code changes",
             nightCycleCron: "21 2 * * *",
+            wakeReview: "manual after night cycle before accepting changes",
             weeklyReviewCron: "34 8 * * 1",
         },
         phases: [
             { id: "day", role: "capture/action/exploration", outputs: ["short-context", "enrichment-run", "snapshot"] },
             { id: "night", role: "compression/consolidation/controlled-noise", outputs: ["dream-note", "night-synthesis", "snapshot"] },
-            { id: "wake", role: "human validation", outputs: ["accepted-patterns", "rejected-patterns", "next-action"] },
+            { id: "wake", role: "human validation", outputs: ["wake-agenda", "snapshot-delta", "accepted-patterns", "rejected-patterns", "next-action"] },
         ],
         score,
         latestSnapshot: snapshot ? {
@@ -2390,6 +2583,7 @@ function makeCognitiveLoopSpec(snapshot = latestSnapshot(), score = calculateLea
             createdAt: snapshot.createdAt,
             contentHash: snapshot.hash,
         } : null,
+        latestSnapshotDelta: latestDelta,
         guardrails: [
             "Never merge dream outputs automatically.",
             "Human feedback is the reward signal.",
@@ -2414,7 +2608,9 @@ function makeCognitiveLoopMarkdown(spec) {
         `## Rythme\n\n` +
         `- Jour : capture, action, exploration, contexte court.\n` +
         `- Nuit : compression, consolidation, bruit contrôlé, synthèse rêve.\n` +
-        `- Réveil : validation humaine, acceptation/refus, prochaine action.\n\n` +
+        `- Réveil : agenda de validation, delta snapshots, acceptation/refus, prochaine action.\n\n` +
+        `## Dernier delta\n\n` +
+        `${snapshotDeltaSummary(spec.latestSnapshotDelta)}\n\n` +
         `## GitHub cron\n\n` +
         `Le workflow \`.github/workflows/povmind-cognitive-loop.yml\` audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne remplace pas la validation humaine.\n\n` +
         `## Garde-fous\n\n${spec.guardrails.map((line) => `- ${line}`).join("\n")}\n`;
@@ -2472,6 +2668,7 @@ function createCognitiveCronNote(snapshot = latestSnapshot()) {
         `## Score actuel\n\n` +
         `- Ratio : ${Math.round(Number(spec.score.ratio || 0) * 100)}%\n` +
         `- Snapshot : ${snapshot ? `\`${snapshot.hash}\`` : "à créer"}\n\n` +
+        `## Dernier delta\n\n${snapshotDeltaSummary(spec.latestSnapshotDelta)}\n\n` +
         `#cron #github #auto-apprentissage #memoire-agentique`;
     return upsertSystemNote(title, "Mémoire agentique", body, true);
 }
@@ -2497,6 +2694,7 @@ function renderLearningPanel() {
         els.createEnrichmentReportBtn.disabled = true;
         els.runDayCycleBtn.disabled = true;
         els.runNightCycleBtn.disabled = true;
+        els.runWakeCycleBtn.disabled = true;
         els.exportCognitiveCronBtn.disabled = true;
         els.memoryTypeChips.innerHTML = "";
         els.immediateContextSummary.innerHTML = `<div class="empty-state">Déverrouille le vault pour lire la mémoire apprenante.</div>`;
@@ -2520,6 +2718,7 @@ function renderLearningPanel() {
     els.createEnrichmentReportBtn.disabled = false;
     els.runDayCycleBtn.disabled = false;
     els.runNightCycleBtn.disabled = false;
+    els.runWakeCycleBtn.disabled = false;
     els.exportCognitiveCronBtn.disabled = false;
     els.memoryTypeChips.innerHTML = MEMORY_TYPES
         .map((type) => {
@@ -6246,6 +6445,11 @@ function commandDefinitions(query = "") {
             run: () => runCognitiveNightCycle(),
         },
         {
+            title: "Cycle cognitif réveil",
+            detail: "Agenda de validation et delta snapshots",
+            run: () => runCognitiveWakeCycle(),
+        },
+        {
             title: "Exporter cron cognitif",
             detail: ".povmind/automation + workflow GitHub",
             run: () => exportCognitiveCronBundle(),
@@ -6508,6 +6712,7 @@ function bindEvents() {
     });
     els.runDayCycleBtn.addEventListener("click", () => void runCognitiveDayCycle());
     els.runNightCycleBtn.addEventListener("click", () => void runCognitiveNightCycle());
+    els.runWakeCycleBtn.addEventListener("click", () => void runCognitiveWakeCycle());
     els.exportCognitiveCronBtn.addEventListener("click", () => void exportCognitiveCronBundle());
     els.importRepoBtn.addEventListener("click", () => els.repoManifestInput.click());
     els.repoManifestInput.addEventListener("change", (event) => importRepoManifest(event.target.files?.[0]));
