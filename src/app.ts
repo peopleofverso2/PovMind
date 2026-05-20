@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.12.0";
+const APP_VERSION = "0.13.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -12,6 +12,7 @@ const REPO_KEY = "povmind:repo";
 const GITHUB_SYNC_KEY = "povmind:github-sync";
 const LEARNING_MEMORY_KEY = "povmind:learning-memory";
 const ENRICHMENT_RUNS_KEY = "povmind:enrichment-runs";
+const COGNITIVE_CYCLES_KEY = "povmind:cognitive-cycles";
 const VAULTS_INDEX_KEY = "povmind:vaults:index";
 const ACTIVE_VAULT_KEY = "povmind:vaults:active";
 const LEGACY_STORAGE_KEY = "graphnotes:v1";
@@ -21,6 +22,7 @@ const LEGACY_STARRED_KEY = "graphnotes:starred";
 const MAX_GRAPH_NODES = 80;
 const MAX_SNAPSHOTS = 24;
 const MAX_ENRICHMENT_RUNS = 20;
+const MAX_COGNITIVE_CYCLES = 30;
 const MAX_REPO_FILES_RENDERED = 8;
 const MAX_DEV_CONTEXT_FILES = 80;
 const MAX_DEV_CONTEXT_NOTE_BYTES = 16000;
@@ -135,6 +137,19 @@ interface EnrichmentRun {
   proposals: EnrichmentProposal[];
 }
 
+interface CognitiveCycle {
+  id: string;
+  createdAt: string;
+  phase: string;
+  source: string;
+  runId: string;
+  snapshotId: string;
+  snapshotHash: string;
+  score: JsonObject;
+  summary: string;
+  outputs: JsonObject[];
+}
+
 interface GraphPosition {
   x: number;
   y: number;
@@ -168,6 +183,7 @@ interface AppState {
   githubSync: JsonObject;
   learningMemory: JsonObject;
   enrichmentRuns: EnrichmentRun[];
+  cognitiveCycles: CognitiveCycle[];
 }
 
 const DEFAULT_LAYOUT: LayoutSettings = {
@@ -303,6 +319,12 @@ const els: Record<string, any> = {
   runEnrichmentBtn: document.getElementById("runEnrichmentBtn"),
   createEnrichmentReportBtn: document.getElementById("createEnrichmentReportBtn"),
   learningMetrics: document.getElementById("learningMetrics"),
+  cognitiveScore: document.getElementById("cognitiveScore"),
+  cycleMetrics: document.getElementById("cycleMetrics"),
+  runDayCycleBtn: document.getElementById("runDayCycleBtn"),
+  runNightCycleBtn: document.getElementById("runNightCycleBtn"),
+  exportCognitiveCronBtn: document.getElementById("exportCognitiveCronBtn"),
+  cognitiveCyclesList: document.getElementById("cognitiveCyclesList"),
   suggestionsList: document.getElementById("suggestionsList"),
   repoStatus: document.getElementById("repoStatus"),
   repoNameLabel: document.getElementById("repoNameLabel"),
@@ -358,6 +380,7 @@ const state: AppState = {
   githubSync: loadGithubSyncState() as JsonObject,
   learningMemory: loadLearningMemory() as JsonObject,
   enrichmentRuns: loadEnrichmentRuns() as EnrichmentRun[],
+  cognitiveCycles: loadCognitiveCycles() as CognitiveCycle[],
 };
 
 function uid() {
@@ -451,6 +474,7 @@ function migrateLegacyVaultToNamespaced(vaultId, security) {
     ["github-sync", localStorage.getItem(GITHUB_SYNC_KEY)],
     ["learning-memory", localStorage.getItem(LEARNING_MEMORY_KEY)],
     ["enrichment-runs", localStorage.getItem(ENRICHMENT_RUNS_KEY)],
+    ["cognitive-cycles", localStorage.getItem(COGNITIVE_CYCLES_KEY)],
   ];
 
   for (const [kind, raw] of pairs) {
@@ -639,6 +663,7 @@ function notesPlainPayload() {
     snapshots: state.snapshots,
     learningMemory: learningMemoryExportPayload(),
     enrichmentRuns: enrichmentRunsExportPayload(),
+    cognitiveCycles: cognitiveCyclesExportPayload(),
     notes: state.notes,
   };
 }
@@ -678,6 +703,7 @@ async function persistEncryptedNotes(showSaved = true) {
   localStorage.removeItem(vaultStorageKey("starred"));
   localStorage.removeItem(vaultStorageKey("learning-memory"));
   localStorage.removeItem(vaultStorageKey("enrichment-runs"));
+  localStorage.removeItem(vaultStorageKey("cognitive-cycles"));
   state.security.encryption.updatedAt = sealed.updatedAt;
   persistSecurityState();
   if (showSaved) els.savedStatus.textContent = "Chiffré";
@@ -704,6 +730,9 @@ async function unlockEncryptedVault(passphrase: string) {
   state.learningMemory = cleanLearningMemory(parsed.learningMemory || null);
   state.enrichmentRuns = Array.isArray(parsed.enrichmentRuns)
     ? parsed.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
+    : [];
+  state.cognitiveCycles = Array.isArray(parsed.cognitiveCycles)
+    ? parsed.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) as CognitiveCycle[]
     : [];
   if (!state.starredIds.size && state.activeId) state.starredIds.add(state.activeId);
   persistStarredIds();
@@ -1137,6 +1166,50 @@ function enrichmentRunsExportPayload() {
   return state.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean);
 }
 
+function cleanCognitiveCycle(cycle) {
+  if (!cycle || typeof cycle !== "object") return null;
+  const createdAt = String(cycle.createdAt || nowIso());
+  return {
+    id: String(cycle.id || `cycle@${createdAt}`),
+    createdAt,
+    phase: String(cycle.phase || "day"),
+    source: String(cycle.source || "manual"),
+    runId: String(cycle.runId || ""),
+    snapshotId: String(cycle.snapshotId || ""),
+    snapshotHash: String(cycle.snapshotHash || ""),
+    score: cycle.score && typeof cycle.score === "object" ? cycle.score : {},
+    summary: String(cycle.summary || ""),
+    outputs: Array.isArray(cycle.outputs) ? cycle.outputs.slice(0, 12) : [],
+  };
+}
+
+function loadCognitiveCycles() {
+  try {
+    const parsed = JSON.parse(readVaultStoredValue("cognitive-cycles", COGNITIVE_CYCLES_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistCognitiveCycles() {
+  state.cognitiveCycles = state.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) as CognitiveCycle[];
+  if (vaultEncrypted()) {
+    localStorage.removeItem(vaultStorageKey("cognitive-cycles"));
+    void persistEncryptedNotes(false).catch((error) => {
+      console.error(error);
+      toast("Sauvegarde chiffrée des cycles impossible.");
+    });
+    return;
+  }
+  localStorage.setItem(vaultStorageKey("cognitive-cycles"), JSON.stringify(state.cognitiveCycles, null, 2));
+  touchActiveVault();
+}
+
+function cognitiveCyclesExportPayload() {
+  return state.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -1394,7 +1467,7 @@ function documentationVaultNotes() {
     {
       title: "PovMind - Index",
       folder: "Documentation PovMind",
-      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - Repo en vault dev]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+      body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - Repo en vault dev]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Boucle cognitive]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
     },
     {
       title: "PovMind - Architecture",
@@ -1511,6 +1584,11 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
       body: `# PovMind - Déploiement Cloud Run\n\nPovMind est déployé sur Cloud Run via un conteneur Node statique.\n\n## URL actuelle\n\nhttps://povmind-472136847189.europe-west1.run.app\n\n## Commande de déploiement\n\n\`\`\`bash\ngcloud run deploy povmind \\\n  --source . \\\n  --project campaign-truth-prod \\\n  --region europe-west1 \\\n  --allow-unauthenticated\n\`\`\`\n\n## Points de production\n\n- \`/healthz\` pour la supervision.\n- \`/version\` pour diagnostiquer la révision.\n- CSP, anti-framing, permissions minimales et referrer policy.\n- PWA manifest, service worker, robots et sitemap.\n- Connecteur GitHub OAuth pour pousser/tirer le contexte \`.povmind/\` sans stocker de token longue durée dans le navigateur.\n\n## Secrets GitHub requis\n\n- \`GITHUB_CLIENT_ID\`\n- \`GITHUB_CLIENT_SECRET\`\n- \`GITHUB_TOKEN_ENCRYPTION_KEY\`\n- \`PUBLIC_BASE_URL\`\n\nVoir [[PovMind - GitHub sync]] et [[PovMind - Backlog contexte]]. #povmind #cloudrun`,
     },
     {
+      title: "PovMind - Boucle cognitive",
+      folder: "Documentation PovMind",
+      body: `# PovMind - Boucle cognitive\n\nLa boucle cognitive transforme le vault en système auto-apprenant traçable sans perdre le contrôle humain.\n\n## Phases\n\n- Jour : capture, action, contexte court, analyse déterministe, snapshot.\n- Nuit : compression, notes froides, consolidation symbolique, mode rêve.\n- Réveil : validation humaine des suggestions, feedback accepté/refusé, prochaine action.\n\n## Score\n\nLe ratio d'auto-amélioration agrège la couverture mémoire, la densité de liens, la fraîcheur du snapshot, le feedback humain, l'ancrage repo, la continuité des cycles, la pression de suggestions et les notes froides.\n\n## Cron GitHub\n\nL'export de contexte ajoute :\n\n- \`.povmind/automation/cognitive-loop.json\`\n- \`.povmind/automation/cognitive-loop.md\`\n- \`.github/workflows/povmind-cognitive-loop.yml\`\n\nLe cron GitHub audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne merge jamais automatiquement les sorties de rêve.\n\n## Garde-fous\n\n- Le rêve produit des hypothèses, pas des décisions.\n- Le reward signal vient du feedback humain.\n- Le snapshot fige le quoi; le journal explique le pourquoi.\n- Le repo reste la source exécutable.\n\nVoir [[PovMind - GitHub sync]], [[PovMind - Snapshots du vault]] et [[PovMind - Backlog contexte]]. #cycle-cognitif #auto-apprentissage #cron`,
+    },
+    {
       title: "PovMind - Backlog contexte",
       folder: "Documentation PovMind",
       body: `# PovMind - Backlog contexte
@@ -1610,6 +1688,7 @@ function loadStore() {
     state.snapshots = [];
     state.learningMemory = cleanLearningMemory(null);
     state.enrichmentRuns = [];
+    state.cognitiveCycles = [];
     state.vaultUnlocked = Boolean(state.vaultCryptoKey);
     return;
   }
@@ -1637,6 +1716,9 @@ function loadStore() {
     if (parsed.learningMemory) state.learningMemory = cleanLearningMemory(parsed.learningMemory);
     if (Array.isArray(parsed.enrichmentRuns)) {
       state.enrichmentRuns = parsed.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[];
+    }
+    if (Array.isArray(parsed.cognitiveCycles)) {
+      state.cognitiveCycles = parsed.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) as CognitiveCycle[];
     }
     if (!state.notes.length) {
       state.notes = seedNotes();
@@ -2386,15 +2468,341 @@ function rejectEnrichmentProposal(proposalId) {
   toast("Suggestion ignorée, signal conservé.");
 }
 
+function backlinksForNoteId(noteId) {
+  const note = state.notes.find((candidate) => candidate.id === noteId);
+  if (!note) return [];
+  const wanted = normalizeTitle(note.title);
+  return state.notes
+    .filter((candidate) => candidate.id !== note.id)
+    .filter((candidate) => extractWikiLinks(candidate.body).some((title) => normalizeTitle(title) === wanted));
+}
+
+function coldNotes(limit = 6) {
+  return [...state.notes]
+    .map((note) => ({
+      note,
+      outgoing: outgoingTargetsForNote(note).length,
+      backlinks: backlinksForNoteId(note.id).length,
+      updatedAt: new Date(note.updatedAt || note.createdAt || 0).getTime(),
+    }))
+    .filter((entry) => entry.outgoing + entry.backlinks === 0)
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+    .slice(0, limit);
+}
+
+function recurrentSignals(limit = 8) {
+  const tags = allTags().slice(0, limit).map(([tag, count]) => ({ type: "tag", label: `#${tag}`, count }));
+  const folders = allFolders().slice(0, limit).map(([folder, count]) => ({ type: "folder", label: folder, count }));
+  return [...tags, ...folders]
+    .sort((a, b) => Number(b.count) - Number(a.count) || a.label.localeCompare(b.label, "fr"))
+    .slice(0, limit);
+}
+
+function calculateLearningScore() {
+  const stats = graphStats();
+  const totalNotes = Math.max(1, state.notes.length);
+  const explicitMemoryNotes = state.notes.filter((note) => cleanMemoryTypes(note.memoryTypes).length).length;
+  const memoryCoverage = explicitMemoryNotes / totalNotes;
+  const linkDensity = Math.min(1, stats.links / Math.max(1, totalNotes * 1.6));
+  const snapshotFreshness = snapshotNeedsRefresh() ? 0 : 1;
+  const feedback = state.learningMemory?.feedback || {};
+  const feedbackTotal = Number(feedback.accepted || 0) + Number(feedback.rejected || 0) + Number(feedback.modified || 0);
+  const feedbackQuality = feedbackTotal
+    ? (Number(feedback.accepted || 0) + Number(feedback.modified || 0) * 0.7) / feedbackTotal
+    : 0.5;
+  const pendingPressure = Math.min(1, pendingEnrichmentProposals().length / Math.max(1, totalNotes / 4));
+  const repoAnchor = repoIsLinked() ? 1 : 0.45;
+  const cycleContinuity = Math.min(1, state.cognitiveCycles.length / 7);
+  const coldPressure = Math.min(1, coldNotes(12).length / Math.max(1, totalNotes / 3));
+  const ratio = clamp(
+    memoryCoverage * 0.22 +
+    linkDensity * 0.18 +
+    snapshotFreshness * 0.16 +
+    feedbackQuality * 0.16 +
+    repoAnchor * 0.12 +
+    cycleContinuity * 0.08 +
+    (1 - pendingPressure) * 0.04 +
+    (1 - coldPressure) * 0.04,
+    0,
+    1
+  );
+
+  return {
+    ratio,
+    memoryCoverage,
+    linkDensity,
+    snapshotFreshness,
+    feedbackQuality,
+    pendingPressure,
+    repoAnchor,
+    cycleContinuity,
+    coldPressure,
+    noteCount: state.notes.length,
+    linkCount: stats.links,
+    pendingSuggestions: pendingEnrichmentProposals().length,
+    coldNotes: coldNotes(6).map((entry) => entry.note.title),
+    recurrentSignals: recurrentSignals(8),
+    measuredAt: nowIso(),
+  };
+}
+
+function cyclePhaseLabel(phase) {
+  if (phase === "day") return "Jour";
+  if (phase === "night") return "Nuit";
+  if (phase === "cron") return "Cron";
+  return String(phase || "Cycle");
+}
+
+function recordCognitiveCycle(input) {
+  const cycle = cleanCognitiveCycle({
+    id: `cycle@${nowIso()}`,
+    createdAt: nowIso(),
+    source: "manual",
+    outputs: [],
+    ...input,
+  }) as CognitiveCycle;
+  state.cognitiveCycles = [cycle, ...state.cognitiveCycles.filter((item) => item.id !== cycle.id)].slice(0, MAX_COGNITIVE_CYCLES);
+  persistCognitiveCycles();
+  return cycle;
+}
+
+function createNightSynthesisNote(run = latestEnrichmentRun()) {
+  const score = calculateLearningScore();
+  const cold = coldNotes(8).map((entry) => `- [[${entry.note.title}]] — froide, ${entry.outgoing} sortant(s), ${entry.backlinks} backlink(s)`).join("\n");
+  const signals = recurrentSignals(8).map((signal) => `- ${signal.label} (${signal.count})`).join("\n");
+  const pending = (run?.proposals || []).filter((proposal) => proposal.status === "pending");
+  const title = `Synthèse nocturne - ${formatLocalDate(new Date())}`;
+  const body = `# ${title}\n\n` +
+    `Cycle : nuit / consolidation / rêve contrôlé.\n\n` +
+    `## Compression\n\n` +
+    `- Ratio d'auto-amélioration : ${Math.round(score.ratio * 100)}%\n` +
+    `- Couverture mémoire : ${Math.round(score.memoryCoverage * 100)}%\n` +
+    `- Densité de liens : ${Math.round(score.linkDensity * 100)}%\n` +
+    `- Pression de suggestions : ${Math.round(score.pendingPressure * 100)}%\n\n` +
+    `## Motifs récurrents\n\n${signals || "- Aucun motif dominant."}\n\n` +
+    `## Idées froides à archiver ou réactiver\n\n${cold || "- Aucune note froide détectée."}\n\n` +
+    `## REM paradoxal\n\n` +
+    `- Inverser une conviction : quelle note serait vraie si son contraire était utile ?\n` +
+    `- Fusion improbable : combiner une mémoire symbolique et une mémoire agentique.\n` +
+    `- Simulation extrême : que casserait une automatisation totale sans validation humaine ?\n\n` +
+    `## Au réveil\n\n${pending.map((proposal) => `- [ ] ${proposal.title} — ${proposal.detail}`).join("\n") || "- [ ] Relancer une analyse après les prochaines notes."}\n\n` +
+    `#reve #consolidation #memoire-symbolique #auto-apprentissage`;
+  return upsertSystemNote(title, "Mémoire symbolique", body, true);
+}
+
+function createCognitiveCycleReport(cycle, run, snapshot) {
+  const score = cycle.score || calculateLearningScore();
+  const title = `Cycle cognitif - ${formatLocalDate(new Date(cycle.createdAt))} - ${cyclePhaseLabel(cycle.phase)}`;
+  const proposals = run?.proposals || [];
+  const body = `# ${title}\n\n` +
+    `Phase : ${cyclePhaseLabel(cycle.phase)}\n` +
+    `Run : ${cycle.runId ? `\`${cycle.runId}\`` : "aucun"}\n` +
+    `Snapshot : ${snapshot ? `\`${snapshot.hash}\`` : "aucun"}\n\n` +
+    `## Score\n\n` +
+    `- Ratio d'auto-amélioration : ${Math.round(Number(score.ratio || 0) * 100)}%\n` +
+    `- Couverture mémoire : ${Math.round(Number(score.memoryCoverage || 0) * 100)}%\n` +
+    `- Densité de liens : ${Math.round(Number(score.linkDensity || 0) * 100)}%\n` +
+    `- Fraîcheur snapshot : ${Math.round(Number(score.snapshotFreshness || 0) * 100)}%\n` +
+    `- Qualité feedback : ${Math.round(Number(score.feedbackQuality || 0) * 100)}%\n\n` +
+    `## Sorties\n\n${(cycle.outputs || []).map((output) => `- ${output.type}: ${output.title || output.id || "ok"}`).join("\n") || "- Aucune sortie."}\n\n` +
+    `## Suggestions ouvertes\n\n${proposals.filter((proposal) => proposal.status === "pending").map((proposal) => `- [ ] ${proposal.title} — ${proposal.detail}`).join("\n") || "- Aucune suggestion ouverte."}\n\n` +
+    `## Lecture humaine\n\n${cycle.summary || "Cycle enregistré."}\n\n` +
+    `#cycle-cognitif #memoire-agentique #audit`;
+  return upsertSystemNote(title, "Mémoire agentique", body, true);
+}
+
+async function runCognitiveDayCycle() {
+  if (!requireVaultUnlocked("lancer le cycle jour")) return null;
+  const run = runDeterministicEnrichment(false);
+  const contextNote = createShortContextNote();
+  const snapshot = await createVaultSnapshot({ silent: true });
+  const score = calculateLearningScore();
+  const cycle = recordCognitiveCycle({
+    phase: "day",
+    runId: run?.id || "",
+    snapshotId: snapshot?.id || "",
+    snapshotHash: snapshot?.hash || "",
+    score,
+    summary: "Capture, contexte court, analyse relisible et snapshot de travail.",
+    outputs: [
+      contextNote ? { type: "note", title: contextNote.title, id: contextNote.id } : null,
+      snapshot ? { type: "snapshot", title: snapshot.id, hash: snapshot.hash } : null,
+      run ? { type: "run", title: run.id, proposals: run.proposals.length } : null,
+    ].filter(Boolean),
+  });
+  createCognitiveCycleReport(cycle, run, snapshot);
+  renderAll();
+  toast(`Cycle jour enregistré : ${Math.round(score.ratio * 100)}%.`);
+  return cycle;
+}
+
+async function runCognitiveNightCycle() {
+  if (!requireVaultUnlocked("lancer le cycle nuit")) return null;
+  const run = runDeterministicEnrichment(false);
+  const dream = createDreamCycleNote();
+  const synthesis = createNightSynthesisNote(run);
+  const snapshot = await createVaultSnapshot({ silent: true });
+  const score = calculateLearningScore();
+  const cycle = recordCognitiveCycle({
+    phase: "night",
+    runId: run?.id || "",
+    snapshotId: snapshot?.id || "",
+    snapshotHash: snapshot?.hash || "",
+    score,
+    summary: "Compression nocturne, détection de notes froides, REM paradoxal et consolidation symbolique.",
+    outputs: [
+      dream ? { type: "note", title: dream.title, id: dream.id } : null,
+      synthesis ? { type: "note", title: synthesis.title, id: synthesis.id } : null,
+      snapshot ? { type: "snapshot", title: snapshot.id, hash: snapshot.hash } : null,
+      run ? { type: "run", title: run.id, proposals: run.proposals.length } : null,
+    ].filter(Boolean),
+  });
+  createCognitiveCycleReport(cycle, run, snapshot);
+  renderAll();
+  toast(`Cycle nuit enregistré : ${Math.round(score.ratio * 100)}%.`);
+  return cycle;
+}
+
+function makeCognitiveLoopSpec(snapshot = latestSnapshot(), score = calculateLearningScore()) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+  return {
+    format: "povmind-cognitive-loop",
+    version: 1,
+    exportedAt: nowIso(),
+    timezone,
+    schedule: {
+      dayCycle: "manual or after meaningful notes/code changes",
+      nightCycleCron: "21 2 * * *",
+      weeklyReviewCron: "34 8 * * 1",
+    },
+    phases: [
+      { id: "day", role: "capture/action/exploration", outputs: ["short-context", "enrichment-run", "snapshot"] },
+      { id: "night", role: "compression/consolidation/controlled-noise", outputs: ["dream-note", "night-synthesis", "snapshot"] },
+      { id: "wake", role: "human validation", outputs: ["accepted-patterns", "rejected-patterns", "next-action"] },
+    ],
+    score,
+    latestSnapshot: snapshot ? {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt,
+      contentHash: snapshot.hash,
+    } : null,
+    guardrails: [
+      "Never merge dream outputs automatically.",
+      "Human feedback is the reward signal.",
+      "Snapshots freeze state; journal notes explain why.",
+      "Cron may audit context freshness, but browser-local vault data remains local-first.",
+    ],
+    expectedFiles: [
+      ".povmind/automation/cognitive-loop.json",
+      ".povmind/automation/cognitive-loop.md",
+      ".github/workflows/povmind-cognitive-loop.yml",
+    ],
+  };
+}
+
+function makeCognitiveLoopMarkdown(spec) {
+  return `# PovMind cognitive loop\n\n` +
+    `Exporté : ${spec.exportedAt}\n\n` +
+    `## Score actuel\n\n` +
+    `- Ratio d'auto-amélioration : ${Math.round(Number(spec.score?.ratio || 0) * 100)}%\n` +
+    `- Couverture mémoire : ${Math.round(Number(spec.score?.memoryCoverage || 0) * 100)}%\n` +
+    `- Densité de liens : ${Math.round(Number(spec.score?.linkDensity || 0) * 100)}%\n` +
+    `- Suggestions ouvertes : ${Number(spec.score?.pendingSuggestions || 0)}\n\n` +
+    `## Rythme\n\n` +
+    `- Jour : capture, action, exploration, contexte court.\n` +
+    `- Nuit : compression, consolidation, bruit contrôlé, synthèse rêve.\n` +
+    `- Réveil : validation humaine, acceptation/refus, prochaine action.\n\n` +
+    `## GitHub cron\n\n` +
+    `Le workflow \`.github/workflows/povmind-cognitive-loop.yml\` audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne remplace pas la validation humaine.\n\n` +
+    `## Garde-fous\n\n${spec.guardrails.map((line) => `- ${line}`).join("\n")}\n`;
+}
+
+function makeGithubCognitiveWorkflow(basePath) {
+  return `name: PovMind cognitive loop\n\n` +
+    `on:\n` +
+    `  schedule:\n` +
+    `    - cron: '21 2 * * *'\n` +
+    `  workflow_dispatch:\n\n` +
+    `permissions:\n` +
+    `  contents: read\n\n` +
+    `jobs:\n` +
+    `  audit-context:\n` +
+    `    runs-on: ubuntu-latest\n` +
+    `    steps:\n` +
+    `      - uses: actions/checkout@v4\n` +
+    `      - name: Audit PovMind context freshness\n` +
+    `        shell: bash\n` +
+    `        run: |\n` +
+    `          set -euo pipefail\n` +
+    `          SPEC=\"${basePath}/automation/cognitive-loop.json\"\n` +
+    `          MANIFEST=\"${basePath}/manifest.json\"\n` +
+    `          if [ ! -f \"$SPEC\" ]; then\n` +
+    `            echo \"::warning::PovMind cognitive loop spec missing at $SPEC\"\n` +
+    `            exit 0\n` +
+    `          fi\n` +
+    `          if [ ! -f \"$MANIFEST\" ]; then\n` +
+    `            echo \"::warning::PovMind manifest missing at $MANIFEST\"\n` +
+    `            exit 0\n` +
+    `          fi\n` +
+    `          node - <<'NODE'\n` +
+    `          const fs = require('fs');\n` +
+    `          const spec = JSON.parse(fs.readFileSync(process.env.SPEC || '${basePath}/automation/cognitive-loop.json', 'utf8'));\n` +
+    `          const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST || '${basePath}/manifest.json', 'utf8'));\n` +
+    `          const ratio = Math.round(Number(spec.score?.ratio || 0) * 100);\n` +
+    `          console.log('PovMind score:', ratio + '%');\n` +
+    `          console.log('Vault:', manifest.activeVault?.name || manifest.activeVaultId || 'unknown');\n` +
+    `          console.log('Latest snapshot:', manifest.snapshot?.contentHash || 'none');\n` +
+    `          if (!manifest.snapshot?.contentHash) console.log('::warning::No PovMind snapshot hash in manifest');\n` +
+    `          if (ratio < 55) console.log('::warning::PovMind auto-improvement ratio below 55%');\n` +
+    `          NODE\n`;
+}
+
+function createCognitiveCronNote(snapshot = latestSnapshot()) {
+  const spec = makeCognitiveLoopSpec(snapshot, calculateLearningScore());
+  const title = "Cron auto-analytique - GitHub";
+  const body = `# ${title}\n\n` +
+    `Cette note décrit le pont entre le vault local-first, les snapshots et le cron GitHub versionnable.\n\n` +
+    `## Rythme proposé\n\n` +
+    `- Jour : contexte court, run d'enrichissement, snapshot.\n` +
+    `- Nuit : synthèse nocturne, cycle rêve, détection des notes froides.\n` +
+    `- Réveil : validation humaine des suggestions.\n` +
+    `- GitHub cron : audit de fraîcheur du contexte \`.povmind/\`, sans lire les secrets ni le vault local du navigateur.\n\n` +
+    `## Fichiers exportés\n\n${spec.expectedFiles.map((file) => `- \`${file}\``).join("\n")}\n\n` +
+    `## Score actuel\n\n` +
+    `- Ratio : ${Math.round(Number(spec.score.ratio || 0) * 100)}%\n` +
+    `- Snapshot : ${snapshot ? `\`${snapshot.hash}\`` : "à créer"}\n\n` +
+    `#cron #github #auto-apprentissage #memoire-agentique`;
+  return upsertSystemNote(title, "Mémoire agentique", body, true);
+}
+
+async function exportCognitiveCronBundle() {
+  if (!requireVaultUnlocked("exporter le cron cognitif")) return null;
+  createCognitiveCronNote();
+  const snapshot = await createVaultSnapshot({ silent: true });
+  const { context, files } = buildPovmindContextFiles(snapshot);
+  const zipBytes = createZipArchive(files);
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(`povmind-cognitive-loop-${date}.zip`, new Blob([zipBytes], { type: "application/zip" }));
+  renderAll();
+  toast(`Bundle cron exporté : ${context.files.length} note(s).`);
+  return { context, files, snapshot };
+}
+
 function renderLearningPanel() {
   if (!els.learningStatus) return;
   if (vaultLocked()) {
     els.learningStatus.textContent = "Verrouillé";
     els.runEnrichmentBtn.disabled = true;
     els.createEnrichmentReportBtn.disabled = true;
+    els.runDayCycleBtn.disabled = true;
+    els.runNightCycleBtn.disabled = true;
+    els.exportCognitiveCronBtn.disabled = true;
     els.memoryTypeChips.innerHTML = "";
     els.immediateContextSummary.innerHTML = `<div class="empty-state">Déverrouille le vault pour lire la mémoire apprenante.</div>`;
     els.learningMetrics.innerHTML = "";
+    els.cycleMetrics.innerHTML = "";
+    els.cognitiveScore.textContent = "0%";
+    els.cognitiveCyclesList.innerHTML = "";
     els.suggestionsList.innerHTML = "";
     return;
   }
@@ -2406,10 +2814,14 @@ function renderLearningPanel() {
   const latest = latestEnrichmentRun();
   const feedback = state.learningMemory?.feedback || {};
   const totalFeedback = Number(feedback.accepted || 0) + Number(feedback.rejected || 0) + Number(feedback.modified || 0);
+  const score = calculateLearningScore();
 
   els.learningStatus.textContent = pending.length ? `${pending.length} à relire` : latest ? "Stable" : "À analyser";
   els.runEnrichmentBtn.disabled = false;
   els.createEnrichmentReportBtn.disabled = false;
+  els.runDayCycleBtn.disabled = false;
+  els.runNightCycleBtn.disabled = false;
+  els.exportCognitiveCronBtn.disabled = false;
 
   els.memoryTypeChips.innerHTML = MEMORY_TYPES
     .map((type) => {
@@ -2438,6 +2850,21 @@ function renderLearningPanel() {
     <span>${Number(feedback.accepted || 0)} ok</span>
     <span>${Number(feedback.rejected || 0)} non</span>
     <span>reward ${totalFeedback ? Number(state.learningMemory?.lastReward || 0).toFixed(2) : "0.00"}</span>`;
+
+  els.cognitiveScore.textContent = `${Math.round(score.ratio * 100)}%`;
+  els.cycleMetrics.innerHTML = `
+    <span>mémoire ${Math.round(score.memoryCoverage * 100)}%</span>
+    <span>liens ${Math.round(score.linkDensity * 100)}%</span>
+    <span>snapshot ${Math.round(score.snapshotFreshness * 100)}%</span>
+    <span>froid ${Math.round(score.coldPressure * 100)}%</span>`;
+
+  els.cognitiveCyclesList.innerHTML = state.cognitiveCycles.length
+    ? state.cognitiveCycles.slice(0, 4).map((cycle) => `
+        <button class="cycle-row" type="button" data-cycle-id="${attr(cycle.id)}" title="${attr(cycle.summary)}">
+          <strong>${escapeHtml(cyclePhaseLabel(cycle.phase))}</strong>
+          <span>${Math.round(Number(cycle.score?.ratio || 0) * 100)}% · ${escapeHtml(formatDate(cycle.createdAt))}</span>
+        </button>`).join("")
+    : `<div class="empty-state">Aucun cycle enregistré.</div>`;
 
   if (!latest) {
     els.suggestionsList.innerHTML = `<div class="empty-state">Lance une analyse pour générer des améliorations relisibles.</div>`;
@@ -4007,6 +4434,7 @@ function joinArchivePath(...parts) {
 function makePovmindRootAgentsMarkdown(context, basePath, snapshot) {
   const sync = cleanGithubSyncState(state.githubSync);
   const vault = activeVaultRecord();
+  const score = calculateLearningScore();
   return `# AGENTS.md\n\n` +
     `Ce repo porte un contexte PovMind versionnable. Avant de coder, lis ce contexte dans cet ordre :\n\n` +
     `1. \`${basePath}/manifest.json\`\n` +
@@ -4019,6 +4447,10 @@ function makePovmindRootAgentsMarkdown(context, basePath, snapshot) {
     `- Si une décision du vault contredit le code, signale explicitement la contradiction.\n` +
     `- Après un changement durable, propose une mise à jour des notes PovMind liées.\n` +
     `- Cite le hash du dernier snapshot quand tu bases une décision sur un état figé.\n\n` +
+    `## Boucle cognitive\n\n` +
+    `- Lis \`${basePath}/automation/cognitive-loop.json\` pour connaître le score, les phases jour/nuit et les garde-fous.\n` +
+    `- Les sorties de rêve ou de nuit sont spéculatives : elles doivent être validées humainement avant d'être traitées comme des décisions.\n` +
+    `- Ratio d'auto-amélioration exporté : ${Math.round(score.ratio * 100)}%.\n\n` +
     `## Vault actif\n\n` +
     `- Nom : ${vault?.name || "PovMind"}\n` +
     `- Vault ID : \`${state.security.vaultId}\`\n` +
@@ -4039,6 +4471,10 @@ function makePovmindReadmeMarkdown(basePath) {
     `- \`${basePath}/vaults/*/snapshots/latest.json\` : état figé avec hash global.\n` +
     `- \`${basePath}/vaults/*/mcp-policy.json\` : politique assistant sans secret complet.\n` +
     `- \`${basePath}/vaults/*/repo-manifest.json\` : résumé du repo lié au vault.\n\n` +
+    `## Automation\n\n` +
+    `- \`${basePath}/automation/cognitive-loop.json\` : spec de la boucle jour/nuit.\n` +
+    `- \`${basePath}/automation/cognitive-loop.md\` : version lisible du rythme cognitif.\n` +
+    `- \`.github/workflows/povmind-cognitive-loop.yml\` : cron GitHub d'audit du contexte versionné.\n\n` +
     `Le contexte ne contient pas le token assistant complet. Les accès MCP restent protégés par \`POVMIND_VAULT_TOKEN\`.\n`;
 }
 
@@ -4082,6 +4518,10 @@ function makePovmindGlobalManifest(context, basePath, snapshot) {
     } : null,
     github: githubSyncExportPayload(),
     repo: repoSummaryPayload(),
+    learning: {
+      score: calculateLearningScore(),
+      cycles: cognitiveCyclesExportPayload().slice(0, 10),
+    },
     snapshot: snapshot ? {
       id: snapshot.id,
       createdAt: snapshot.createdAt,
@@ -4094,6 +4534,7 @@ function makePovmindGlobalManifest(context, basePath, snapshot) {
       latestSnapshot: joinArchivePath(basePath, "vaults", state.security.vaultId, "snapshots", "latest.json"),
       mcpPolicy: joinArchivePath(basePath, "vaults", state.security.vaultId, "mcp-policy.json"),
       repoManifest: joinArchivePath(basePath, "vaults", state.security.vaultId, "repo-manifest.json"),
+      cognitiveLoop: joinArchivePath(basePath, "automation", "cognitive-loop.json"),
     },
   };
 }
@@ -4117,6 +4558,12 @@ function makePovmindVaultManifest(context, basePath, snapshot) {
     } : null,
     security: assistantAccessPolicyPayload(snapshot),
     github: githubSyncExportPayload(),
+    learning: {
+      memory: learningMemoryExportPayload(),
+      runs: enrichmentRunsExportPayload().slice(0, 10),
+      cycles: cognitiveCyclesExportPayload().slice(0, 12),
+      score: calculateLearningScore(),
+    },
     notes: codexManifest.notes.map((note) => ({
       ...note,
       path: joinArchivePath(vaultPath, "notes", `${note.slug}.md`),
@@ -4130,10 +4577,14 @@ function buildPovmindContextFiles(snapshot = latestSnapshot()) {
   const context = buildCodexContext(exportedAt);
   const basePath = cleanGithubBasePath(state.githubSync?.basePath);
   const vaultPath = joinArchivePath(basePath, "vaults", state.security.vaultId);
+  const cognitiveSpec = makeCognitiveLoopSpec(snapshot, calculateLearningScore());
   const files = [
     { path: "AGENTS.md", content: makePovmindRootAgentsMarkdown(context, basePath, snapshot) },
     { path: joinArchivePath(basePath, "README.md"), content: makePovmindReadmeMarkdown(basePath) },
     { path: joinArchivePath(basePath, "manifest.json"), content: JSON.stringify(makePovmindGlobalManifest(context, basePath, snapshot), null, 2) },
+    { path: joinArchivePath(basePath, "automation", "cognitive-loop.json"), content: JSON.stringify(cognitiveSpec, null, 2) },
+    { path: joinArchivePath(basePath, "automation", "cognitive-loop.md"), content: makeCognitiveLoopMarkdown(cognitiveSpec) },
+    { path: ".github/workflows/povmind-cognitive-loop.yml", content: makeGithubCognitiveWorkflow(basePath) },
     { path: joinArchivePath(vaultPath, "manifest.json"), content: JSON.stringify(makePovmindVaultManifest(context, basePath, snapshot), null, 2) },
     { path: joinArchivePath(vaultPath, "INDEX.md"), content: makeCodexIndexMarkdown(context) },
     { path: joinArchivePath(vaultPath, "graph.json"), content: JSON.stringify(makeCodexGraph(context), null, 2) },
@@ -4693,6 +5144,8 @@ function buildSnapshotContent(createdAt) {
     learning: {
       memory: learningMemoryExportPayload(),
       runs: enrichmentRunsExportPayload().slice(0, 10),
+      cycles: cognitiveCyclesExportPayload().slice(0, 12),
+      score: calculateLearningScore(),
     },
     summary: {
       noteCount: stats.notes,
@@ -4705,8 +5158,10 @@ function buildSnapshotContent(createdAt) {
       repoTreeHash: state.repo.treeHash || "",
       githubLinked: Boolean(state.githubSync.repoFullName),
       enrichmentRunCount: state.enrichmentRuns.length,
+      cognitiveCycleCount: state.cognitiveCycles.length,
       learningAccepted: Number(state.learningMemory?.feedback?.accepted || 0),
       learningRejected: Number(state.learningMemory?.feedback?.rejected || 0),
+      autoImprovementRatio: calculateLearningScore().ratio,
     },
   };
 }
@@ -4937,6 +5392,7 @@ function exportVault() {
     githubSync: githubSyncExportPayload(),
     learningMemory: learningMemoryExportPayload(),
     enrichmentRuns: enrichmentRunsExportPayload(),
+    cognitiveCycles: cognitiveCyclesExportPayload(),
     snapshots: state.snapshots,
     notes: state.notes,
   };
@@ -5606,6 +6062,13 @@ function normalizeVaultImportPayload(parsed) {
         : Array.isArray(parsed?.enrichmentRuns)
           ? parsed.enrichmentRuns
           : [],
+    cognitiveCycles: Array.isArray(source?.cognitiveCycles)
+      ? source.cognitiveCycles
+      : Array.isArray(source?.learning?.cycles)
+        ? source.learning.cycles
+        : Array.isArray(parsed?.cognitiveCycles)
+          ? parsed.cognitiveCycles
+          : [],
     graphPositions: source?.graphPositions && typeof source.graphPositions === "object" ? source.graphPositions : null,
     layout: source?.layout && typeof source.layout === "object" ? source.layout : null,
     snapshots,
@@ -5655,10 +6118,14 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
     state.enrichmentRuns = Array.isArray(payload.enrichmentRuns)
       ? payload.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
       : [];
+    state.cognitiveCycles = Array.isArray(payload.cognitiveCycles)
+      ? payload.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) as CognitiveCycle[]
+      : [];
     state.snapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS);
     persistSnapshots();
     persistLearningMemory();
     persistEnrichmentRuns();
+    persistCognitiveCycles();
     persistGraphPositions();
   } else {
     const idMap = new Map();
@@ -5719,6 +6186,14 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, MAX_ENRICHMENT_RUNS);
       persistEnrichmentRuns();
+    }
+    if (Array.isArray(payload.cognitiveCycles) && payload.cognitiveCycles.length) {
+      const importedCycles = payload.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean) as CognitiveCycle[];
+      const byId = new Map([...state.cognitiveCycles, ...importedCycles].map((cycle) => [cycle.id, cycle]));
+      state.cognitiveCycles = [...byId.values()]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, MAX_COGNITIVE_CYCLES);
+      persistCognitiveCycles();
     }
     for (const id of payload.starredIds) {
       const nextId = idMap.get(id);
@@ -5783,6 +6258,9 @@ async function createVaultFromImportPayload(parsed, rawName) {
   state.enrichmentRuns = Array.isArray(payload.enrichmentRuns)
     ? payload.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
     : [];
+  state.cognitiveCycles = Array.isArray(payload.cognitiveCycles)
+    ? payload.cognitiveCycles.map(cleanCognitiveCycle).filter(Boolean).slice(0, MAX_COGNITIVE_CYCLES) as CognitiveCycle[]
+    : [];
   els.searchInput.value = "";
 
   localStorage.setItem(vaultStorageKey("view"), state.view);
@@ -5794,6 +6272,7 @@ async function createVaultFromImportPayload(parsed, rawName) {
   persistSnapshots();
   persistLearningMemory();
   persistEnrichmentRuns();
+  persistCognitiveCycles();
   persistStarredIds();
   persistNow(true);
   applyLayoutSettings();
@@ -5890,6 +6369,7 @@ function loadActiveVaultState() {
   state.githubSync = loadGithubSyncState();
   state.learningMemory = vaultEncrypted() ? cleanLearningMemory(null) : loadLearningMemory();
   state.enrichmentRuns = vaultEncrypted() ? [] : loadEnrichmentRuns() as EnrichmentRun[];
+  state.cognitiveCycles = vaultEncrypted() ? [] : loadCognitiveCycles() as CognitiveCycle[];
   els.searchInput.value = "";
   loadStore();
   ensureDocumentationVault({ silent: true });
@@ -6252,6 +6732,21 @@ function commandDefinitions(query = "") {
       run: createVaultSnapshot,
     },
     {
+      title: "Cycle cognitif jour",
+      detail: "Contexte court, analyse et snapshot",
+      run: () => runCognitiveDayCycle(),
+    },
+    {
+      title: "Cycle cognitif nuit",
+      detail: "Synthèse nocturne et mode rêve",
+      run: () => runCognitiveNightCycle(),
+    },
+    {
+      title: "Exporter cron cognitif",
+      detail: ".povmind/automation + workflow GitHub",
+      run: () => exportCognitiveCronBundle(),
+    },
+    {
       title: "Exporter le dernier snapshot",
       detail: "Télécharger le snapshot JSON complet",
       run: () => exportSnapshot(),
@@ -6422,6 +6917,7 @@ function resetDemo() {
   state.githubSync = cleanGithubSyncState(null);
   state.learningMemory = cleanLearningMemory(null);
   state.enrichmentRuns = [];
+  state.cognitiveCycles = [];
   els.searchInput.value = "";
   ensureDocumentationVault({ silent: true });
   persistStarredIds();
@@ -6431,6 +6927,7 @@ function resetDemo() {
   persistGithubSyncState();
   persistLearningMemory();
   persistEnrichmentRuns();
+  persistCognitiveCycles();
   persistNow(true);
   renderAll();
   toast("Démo réinitialisée.");
@@ -6513,6 +7010,9 @@ function bindEvents() {
     renderAll();
     toast("Rapport d'enrichissement créé.");
   });
+  els.runDayCycleBtn.addEventListener("click", () => void runCognitiveDayCycle());
+  els.runNightCycleBtn.addEventListener("click", () => void runCognitiveNightCycle());
+  els.exportCognitiveCronBtn.addEventListener("click", () => void exportCognitiveCronBundle());
   els.importRepoBtn.addEventListener("click", () => els.repoManifestInput.click());
   els.repoManifestInput.addEventListener("change", (event) => importRepoManifest(event.target.files?.[0]));
   els.exportRepoBtn.addEventListener("click", exportRepoManifest);

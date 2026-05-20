@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PovMind est un vault Markdown sécurisé pour relier notes, backlinks, graphe et export Codex KB." />
-  <meta name="povmind-version" content="0.12.0" />
+  <meta name="povmind-version" content="0.13.0" />
   <meta name="robots" content="index,follow" />
   <meta name="theme-color" content="#f32617" />
   <meta name="application-name" content="PovMind" />
@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="PovMind — vault Markdown sécurisé" />
   <meta name="twitter:description" content="Vault Markdown avec liens wiki, backlinks, graphe et export Codex KB." />
   <meta name="twitter:image" content="https://povmind-472136847189.europe-west1.run.app/assets/icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=0.12.0" />
+  <link rel="stylesheet" href="styles.css?v=0.13.0" />
 </head>
 <body>
   <div class="app-shell">
@@ -213,6 +213,19 @@
           <button id="createEnrichmentReportBtn" class="ghost-btn" type="button">Rapport</button>
         </div>
         <div id="learningMetrics" class="learning-metrics"></div>
+        <div class="cycle-panel">
+          <div class="cycle-panel-head">
+            <span>Cycles</span>
+            <strong id="cognitiveScore">0%</strong>
+          </div>
+          <div id="cycleMetrics" class="cycle-metrics"></div>
+          <div class="cycle-actions">
+            <button id="runDayCycleBtn" class="ghost-btn" type="button">Jour</button>
+            <button id="runNightCycleBtn" class="ghost-btn" type="button">Nuit</button>
+            <button id="exportCognitiveCronBtn" class="ghost-btn" type="button">Cron</button>
+          </div>
+          <div id="cognitiveCyclesList" class="cognitive-cycles-list"></div>
+        </div>
         <div id="suggestionsList" class="suggestions-list"></div>
       </section>
 
@@ -343,7 +356,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=0.12.0"></script>
+  <script src="app.js?v=0.13.0"></script>
   <script src="auto-sync.js"></script>
 </body>
 </html>

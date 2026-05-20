@@ -1194,6 +1194,105 @@ button:disabled {
   white-space: nowrap;
 }
 
+.cycle-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px;
+  background: #1f1f1f;
+}
+
+.cycle-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cycle-panel-head span {
+  color: var(--muted-2);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cycle-panel-head strong {
+  color: var(--accent-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+}
+
+.cycle-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cycle-metrics span {
+  overflow: hidden;
+  border-radius: 5px;
+  padding: 5px 7px;
+  background: #292929;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cycle-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.cycle-actions .ghost-btn {
+  min-height: 32px;
+  padding: 5px 7px;
+  font-size: 0.74rem;
+}
+
+.cognitive-cycles-list {
+  display: grid;
+  gap: 5px;
+}
+
+.cycle-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 4px 7px;
+  background: #242424;
+  color: var(--text);
+  text-align: left;
+}
+
+.cycle-row:hover {
+  border-color: var(--line-strong);
+  background: #303030;
+}
+
+.cycle-row strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.cycle-row span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .suggestions-list {
   display: grid;
   gap: 8px;
