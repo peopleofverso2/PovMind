@@ -10,6 +10,8 @@ const DOC_VAULT_KEY = "povmind:doc-vault:v1";
 const SNAPSHOTS_KEY = "povmind:snapshots";
 const REPO_KEY = "povmind:repo";
 const GITHUB_SYNC_KEY = "povmind:github-sync";
+const LEARNING_MEMORY_KEY = "povmind:learning-memory";
+const ENRICHMENT_RUNS_KEY = "povmind:enrichment-runs";
 const VAULTS_INDEX_KEY = "povmind:vaults:index";
 const ACTIVE_VAULT_KEY = "povmind:vaults:active";
 const LEGACY_STORAGE_KEY = "graphnotes:v1";
@@ -18,12 +20,23 @@ const LEGACY_GRAPH_LAYOUT_KEY = "graphnotes:graph-layout";
 const LEGACY_STARRED_KEY = "graphnotes:starred";
 const MAX_GRAPH_NODES = 80;
 const MAX_SNAPSHOTS = 24;
+const MAX_ENRICHMENT_RUNS = 20;
 const MAX_REPO_FILES_RENDERED = 8;
 const MAX_DEV_CONTEXT_FILES = 80;
 const MAX_DEV_CONTEXT_NOTE_BYTES = 16000;
 const VAULT_CRYPTO_ITERATIONS = 310000;
 const ROOT_FOLDER = "Racine";
 const OBSIDIAN_IGNORED_DIRS = new Set([".obsidian", ".git", ".trash", ".stfolder", "node_modules"]);
+
+const MEMORY_TYPES = [
+  { id: "raw", label: "Brute", detail: "Documents, notes, logs" },
+  { id: "structured", label: "Structurée", detail: "Wiki, concepts, liens" },
+  { id: "strategic", label: "Stratégique", detail: "Décisions, convictions" },
+  { id: "symbolic", label: "Symbolique", detail: "Métaphores, intuitions" },
+  { id: "agentic", label: "Agentique", detail: "Actions, runs, logs" },
+  { id: "relational", label: "Relationnelle", detail: "Personnes, contextes" },
+  { id: "prospective", label: "Prospective", detail: "Hypothèses, scénarios" },
+];
 
 type JsonObject = Record<string, any>;
 
@@ -41,6 +54,7 @@ interface Note {
   body: string;
   createdAt: string;
   updatedAt: string;
+  memoryTypes?: string[];
 }
 
 interface NoteTemplate {
@@ -97,6 +111,30 @@ interface VaultSnapshot {
   payload: JsonObject | null;
 }
 
+interface EnrichmentProposal {
+  id: string;
+  type: string;
+  title: string;
+  detail: string;
+  status: string;
+  confidence: number;
+  risk: string;
+  targetId: string;
+  targetTitle: string;
+  evidence: JsonObject[];
+  createdAt: string;
+  appliedAt: string;
+}
+
+interface EnrichmentRun {
+  id: string;
+  createdAt: string;
+  source: string;
+  mode: string;
+  input: JsonObject;
+  proposals: EnrichmentProposal[];
+}
+
 interface GraphPosition {
   x: number;
   y: number;
@@ -128,6 +166,8 @@ interface AppState {
   snapshots: VaultSnapshot[];
   repo: JsonObject;
   githubSync: JsonObject;
+  learningMemory: JsonObject;
+  enrichmentRuns: EnrichmentRun[];
 }
 
 const DEFAULT_LAYOUT: LayoutSettings = {
@@ -257,6 +297,13 @@ const els: Record<string, any> = {
   createSnapshotBtn: document.getElementById("createSnapshotBtn"),
   exportSnapshotBtn: document.getElementById("exportSnapshotBtn"),
   snapshotsList: document.getElementById("snapshotsList"),
+  learningStatus: document.getElementById("learningStatus"),
+  memoryTypeChips: document.getElementById("memoryTypeChips"),
+  immediateContextSummary: document.getElementById("immediateContextSummary"),
+  runEnrichmentBtn: document.getElementById("runEnrichmentBtn"),
+  createEnrichmentReportBtn: document.getElementById("createEnrichmentReportBtn"),
+  learningMetrics: document.getElementById("learningMetrics"),
+  suggestionsList: document.getElementById("suggestionsList"),
   repoStatus: document.getElementById("repoStatus"),
   repoNameLabel: document.getElementById("repoNameLabel"),
   repoMetaLine: document.getElementById("repoMetaLine"),
@@ -309,6 +356,8 @@ const state: AppState = {
   snapshots: loadSnapshots() as VaultSnapshot[],
   repo: loadRepoState() as JsonObject,
   githubSync: loadGithubSyncState() as JsonObject,
+  learningMemory: loadLearningMemory() as JsonObject,
+  enrichmentRuns: loadEnrichmentRuns() as EnrichmentRun[],
 };
 
 function uid() {
@@ -400,6 +449,8 @@ function migrateLegacyVaultToNamespaced(vaultId, security) {
     ["snapshots", localStorage.getItem(SNAPSHOTS_KEY)],
     ["repo", localStorage.getItem(REPO_KEY)],
     ["github-sync", localStorage.getItem(GITHUB_SYNC_KEY)],
+    ["learning-memory", localStorage.getItem(LEARNING_MEMORY_KEY)],
+    ["enrichment-runs", localStorage.getItem(ENRICHMENT_RUNS_KEY)],
   ];
 
   for (const [kind, raw] of pairs) {
@@ -586,6 +637,8 @@ function notesPlainPayload() {
     activeId: state.activeId,
     starredIds: [...state.starredIds],
     snapshots: state.snapshots,
+    learningMemory: learningMemoryExportPayload(),
+    enrichmentRuns: enrichmentRunsExportPayload(),
     notes: state.notes,
   };
 }
@@ -623,6 +676,8 @@ async function persistEncryptedNotes(showSaved = true) {
   localStorage.removeItem(vaultStorageKey("notes"));
   localStorage.removeItem(vaultStorageKey("snapshots"));
   localStorage.removeItem(vaultStorageKey("starred"));
+  localStorage.removeItem(vaultStorageKey("learning-memory"));
+  localStorage.removeItem(vaultStorageKey("enrichment-runs"));
   state.security.encryption.updatedAt = sealed.updatedAt;
   persistSecurityState();
   if (showSaved) els.savedStatus.textContent = "Chiffré";
@@ -645,6 +700,10 @@ async function unlockEncryptedVault(passphrase: string) {
     : []);
   state.snapshots = Array.isArray(parsed.snapshots)
     ? parsed.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS)
+    : [];
+  state.learningMemory = cleanLearningMemory(parsed.learningMemory || null);
+  state.enrichmentRuns = Array.isArray(parsed.enrichmentRuns)
+    ? parsed.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
     : [];
   if (!state.starredIds.size && state.activeId) state.starredIds.add(state.activeId);
   persistStarredIds();
@@ -945,6 +1004,137 @@ function githubSyncExportPayload() {
       tokenStorage: "server-http-only",
     },
   };
+}
+
+function memoryTypeIds() {
+  return MEMORY_TYPES.map((type) => type.id);
+}
+
+function memoryTypeById(typeId) {
+  return MEMORY_TYPES.find((type) => type.id === typeId) || null;
+}
+
+function cleanMemoryTypes(value) {
+  const allowed = new Set(memoryTypeIds());
+  const values = Array.isArray(value) ? value : String(value || "").split(/[,\s]+/);
+  return [...new Set(values.map((item) => String(item || "").trim()).filter((item) => allowed.has(item)))];
+}
+
+function defaultMemoryWeights() {
+  return Object.fromEntries(MEMORY_TYPES.map((type) => [type.id, 1]));
+}
+
+function cleanLearningMemory(value) {
+  const feedback = value?.feedback && typeof value.feedback === "object" ? value.feedback : {};
+  const weights = value?.memoryWeights && typeof value.memoryWeights === "object" ? value.memoryWeights : {};
+  return {
+    format: "povmind-learning-memory",
+    version: 1,
+    updatedAt: String(value?.updatedAt || ""),
+    feedback: {
+      accepted: Number.isFinite(Number(feedback.accepted)) ? Number(feedback.accepted) : 0,
+      rejected: Number.isFinite(Number(feedback.rejected)) ? Number(feedback.rejected) : 0,
+      modified: Number.isFinite(Number(feedback.modified)) ? Number(feedback.modified) : 0,
+      autoApplied: Number.isFinite(Number(feedback.autoApplied)) ? Number(feedback.autoApplied) : 0,
+    },
+    acceptedPatterns: Array.isArray(value?.acceptedPatterns) ? value.acceptedPatterns.slice(0, 80) : [],
+    rejectedPatterns: Array.isArray(value?.rejectedPatterns) ? value.rejectedPatterns.slice(0, 80) : [],
+    confidenceRules: Array.isArray(value?.confidenceRules) ? value.confidenceRules.slice(0, 40) : [],
+    memoryWeights: {
+      ...defaultMemoryWeights(),
+      ...Object.fromEntries(Object.entries(weights).map(([key, number]) => [key, Number.isFinite(Number(number)) ? Number(number) : 1])),
+    },
+    lastReward: Number.isFinite(Number(value?.lastReward)) ? Number(value.lastReward) : 0,
+  };
+}
+
+function loadLearningMemory() {
+  try {
+    return cleanLearningMemory(JSON.parse(readVaultStoredValue("learning-memory", LEARNING_MEMORY_KEY) || "null"));
+  } catch {
+    return cleanLearningMemory(null);
+  }
+}
+
+function persistLearningMemory() {
+  state.learningMemory = cleanLearningMemory({
+    ...state.learningMemory,
+    updatedAt: nowIso(),
+  });
+  if (vaultEncrypted()) {
+    localStorage.removeItem(vaultStorageKey("learning-memory"));
+    void persistEncryptedNotes(false).catch((error) => {
+      console.error(error);
+      toast("Sauvegarde chiffrée de la mémoire impossible.");
+    });
+    return;
+  }
+  localStorage.setItem(vaultStorageKey("learning-memory"), JSON.stringify(state.learningMemory, null, 2));
+  touchActiveVault();
+}
+
+function cleanProposal(proposal) {
+  if (!proposal || typeof proposal !== "object") return null;
+  const createdAt = String(proposal.createdAt || nowIso());
+  return {
+    id: String(proposal.id || `proposal_${uid()}`),
+    type: String(proposal.type || "review"),
+    title: String(proposal.title || "Suggestion"),
+    detail: String(proposal.detail || ""),
+    status: ["pending", "accepted", "rejected", "modified"].includes(String(proposal.status)) ? String(proposal.status) : "pending",
+    confidence: clamp(Number(proposal.confidence || 0.65), 0, 1),
+    risk: String(proposal.risk || "low"),
+    targetId: String(proposal.targetId || ""),
+    targetTitle: String(proposal.targetTitle || ""),
+    evidence: Array.isArray(proposal.evidence) ? proposal.evidence.slice(0, 12) : [],
+    createdAt,
+    appliedAt: String(proposal.appliedAt || ""),
+  };
+}
+
+function cleanEnrichmentRun(run) {
+  if (!run || typeof run !== "object") return null;
+  const createdAt = String(run.createdAt || nowIso());
+  const proposals = Array.isArray(run.proposals) ? run.proposals.map(cleanProposal).filter(Boolean) : [];
+  return {
+    id: String(run.id || `enrich@${createdAt}`),
+    createdAt,
+    source: String(run.source || "vault-local"),
+    mode: String(run.mode || "review"),
+    input: run.input && typeof run.input === "object" ? run.input : {},
+    proposals,
+  };
+}
+
+function loadEnrichmentRuns() {
+  try {
+    const parsed = JSON.parse(readVaultStoredValue("enrichment-runs", ENRICHMENT_RUNS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistEnrichmentRuns() {
+  state.enrichmentRuns = state.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[];
+  if (vaultEncrypted()) {
+    localStorage.removeItem(vaultStorageKey("enrichment-runs"));
+    void persistEncryptedNotes(false).catch((error) => {
+      console.error(error);
+      toast("Sauvegarde chiffrée des analyses impossible.");
+    });
+    return;
+  }
+  localStorage.setItem(vaultStorageKey("enrichment-runs"), JSON.stringify(state.enrichmentRuns, null, 2));
+  touchActiveVault();
+}
+
+function learningMemoryExportPayload() {
+  return cleanLearningMemory(state.learningMemory);
+}
+
+function enrichmentRunsExportPayload() {
+  return state.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean);
 }
 
 function nowIso() {
@@ -1418,6 +1608,8 @@ function loadStore() {
     state.activeId = null;
     state.starredIds = new Set<string>();
     state.snapshots = [];
+    state.learningMemory = cleanLearningMemory(null);
+    state.enrichmentRuns = [];
     state.vaultUnlocked = Boolean(state.vaultCryptoKey);
     return;
   }
@@ -1442,6 +1634,10 @@ function loadStore() {
       state.starredIds = new Set(parsed.starredIds.map(String).filter((id) => state.notes.some((note) => note.id === id)));
       persistStarredIds();
     }
+    if (parsed.learningMemory) state.learningMemory = cleanLearningMemory(parsed.learningMemory);
+    if (Array.isArray(parsed.enrichmentRuns)) {
+      state.enrichmentRuns = parsed.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[];
+    }
     if (!state.notes.length) {
       state.notes = seedNotes();
       state.activeId = state.notes[0].id;
@@ -1460,7 +1656,7 @@ function loadStore() {
 function cleanNote(note) {
   if (!note || typeof note !== "object") return null;
   const createdAt = note.createdAt || nowIso();
-  return {
+  const clean: any = {
     id: String(note.id || uid()),
     title: String(note.title || "Sans titre"),
     folder: normalizeFolder(note.folder),
@@ -1468,6 +1664,9 @@ function cleanNote(note) {
     createdAt,
     updatedAt: note.updatedAt || createdAt,
   };
+  const memoryTypes = cleanMemoryTypes(note.memoryTypes);
+  if (memoryTypes.length) clean.memoryTypes = memoryTypes;
+  return clean;
 }
 
 function persistNow(showSaved = true) {
@@ -1609,6 +1808,64 @@ function extractTags(text) {
   return [...tags].sort((a, b) => a.localeCompare(b, "fr"));
 }
 
+function textIncludesAny(text, words) {
+  const haystack = String(text || "").toLocaleLowerCase("fr-FR");
+  return words.some((word) => haystack.includes(String(word).toLocaleLowerCase("fr-FR")));
+}
+
+function inferMemoryTypesForNote(note) {
+  if (!note) return ["structured"];
+  const text = `${note.title}\n${note.folder}\n${note.body}`;
+  const types = new Set<string>();
+
+  if (textIncludesAny(text, ["log", "journal", "document", "source", "transcript", "capture", "import", "brut"]) || /```[\s\S]*?```/.test(note.body || "")) {
+    types.add("raw");
+  }
+  if (extractWikiLinks(note.body).length || extractTags(text).length || textIncludesAny(text, ["index", "wiki", "concept", "cartographie", "architecture", "structure"])) {
+    types.add("structured");
+  }
+  if (textIncludesAny(text, ["décision", "decision", "stratégie", "strategie", "conviction", "arbitrage", "principe", "politique", "sécurité"])) {
+    types.add("strategic");
+  }
+  if (textIncludesAny(text, ["rêve", "reve", "symbolique", "métaphore", "metaphore", "intuition", "verset", "paradox", "onirique"])) {
+    types.add("symbolic");
+  }
+  if (textIncludesAny(text, ["action", "run", "agent", "commande", "mcp", "snapshot", "cron", "git", "deploy", "exécutée", "executee", "audit"])) {
+    types.add("agentic");
+  }
+  if (textIncludesAny(text, ["personne", "relation", "client", "équipe", "equipe", "frederic", "contexte relationnel", "stakeholder"])) {
+    types.add("relational");
+  }
+  if (textIncludesAny(text, ["hypothèse", "hypothese", "futur", "prospective", "roadmap", "scénario", "scenario", "question ouverte", "risque", "opportunité"])) {
+    types.add("prospective");
+  }
+
+  if (!types.size) types.add("structured");
+  return cleanMemoryTypes([...types]);
+}
+
+function effectiveMemoryTypes(note) {
+  const explicit = cleanMemoryTypes(note?.memoryTypes);
+  return explicit.length ? explicit : inferMemoryTypesForNote(note);
+}
+
+function toggleActiveNoteMemoryType(typeId) {
+  if (!requireVaultUnlocked("classifier cette note")) return;
+  const note = activeNote();
+  const type = memoryTypeById(typeId);
+  if (!note || !type) return;
+  const current = new Set(cleanMemoryTypes(note.memoryTypes));
+  if (current.has(typeId)) current.delete(typeId);
+  else current.add(typeId);
+  const next = cleanMemoryTypes([...current]);
+  if (next.length) note.memoryTypes = next;
+  else delete note.memoryTypes;
+  note.updatedAt = nowIso();
+  queueSave();
+  renderLearningPanel();
+  toast(`Mémoire ${type.label.toLocaleLowerCase("fr-FR")} ${current.has(typeId) ? "ajoutée" : "retirée"}.`);
+}
+
 function tagsForNote(note) {
   return extractTags(`${note.title}\n${note.body}`);
 }
@@ -1741,6 +1998,470 @@ function renderSnapshotsPanel() {
           <em>${Number(summary.noteCount || 0)} notes · ${Number(summary.linkCount || 0)} liens${escapeHtml(active)}</em>
         </button>`;
     })
+    .join("");
+}
+
+function latestEnrichmentRun() {
+  return state.enrichmentRuns[0] || null;
+}
+
+function pendingEnrichmentProposals() {
+  const run = latestEnrichmentRun();
+  return run ? run.proposals.filter((proposal) => proposal.status === "pending") : [];
+}
+
+function makeProposal(type, title, detail, options: JsonObject = {}) {
+  return cleanProposal({
+    id: `${type}:${safeFilename(options.targetId || options.targetTitle || title)}:${uid().slice(0, 8)}`,
+    type,
+    title,
+    detail,
+    status: "pending",
+    confidence: options.confidence ?? 0.68,
+    risk: options.risk || "low",
+    targetId: options.targetId || "",
+    targetTitle: options.targetTitle || "",
+    evidence: options.evidence || [],
+    createdAt: nowIso(),
+  }) as EnrichmentProposal;
+}
+
+function snapshotNeedsRefresh() {
+  const latest = latestSnapshot();
+  if (!latest) return true;
+  const stats = graphStats();
+  const summary = latest.summary || {};
+  return Number(summary.noteCount || 0) !== stats.notes
+    || Number(summary.linkCount || 0) !== stats.links
+    || String(summary.repoTreeHash || "") !== String(state.repo?.treeHash || "")
+    || Boolean(summary.githubLinked) !== Boolean(state.githubSync?.repoFullName);
+}
+
+function hasTodaysEnrichmentReport() {
+  const today = formatLocalDate(new Date());
+  return state.notes.some((note) => normalizeTitle(note.title).startsWith(normalizeTitle(`Rapport d'enrichissement - ${today}`)));
+}
+
+function buildDeterministicEnrichmentProposals() {
+  const proposals: EnrichmentProposal[] = [];
+  const active = activeNote();
+  const untypedNotes = state.notes
+    .filter((note) => !cleanMemoryTypes(note.memoryTypes).length)
+    .slice(0, 16);
+
+  if (untypedNotes.length) {
+    proposals.push(makeProposal(
+      "assign_memory",
+      "Classifier les mémoires",
+      `${untypedNotes.length} note(s) peuvent recevoir une couche mémoire explicite.`,
+      {
+        confidence: 0.78,
+        risk: "low",
+        evidence: untypedNotes.map((note) => ({
+          id: note.id,
+          title: note.title,
+          inferred: inferMemoryTypesForNote(note),
+        })),
+      }
+    ));
+  }
+
+  if (active && !findNoteByTitle("Contexte court - Session")) {
+    proposals.push(makeProposal(
+      "create_context",
+      "Créer la mémoire immédiate",
+      "Synthétiser la note active en contexte court pour réduire la charge mentale.",
+      {
+        targetId: active.id,
+        targetTitle: active.title,
+        confidence: 0.72,
+        risk: "low",
+        evidence: [{ id: active.id, title: active.title, memoryTypes: effectiveMemoryTypes(active) }],
+      }
+    ));
+  }
+
+  if (snapshotNeedsRefresh()) {
+    proposals.push(makeProposal(
+      "create_snapshot",
+      "Figer un snapshot du vault",
+      "Le vault ou son repo lié a changé depuis le dernier hash stable.",
+      {
+        confidence: 0.82,
+        risk: "low",
+        evidence: [{ latestSnapshot: latestSnapshot()?.id || null, repoTreeHash: state.repo?.treeHash || "", notes: state.notes.length }],
+      }
+    ));
+  }
+
+  if (repoIsLinked()) {
+    const repo = cleanRepoState(state.repo);
+    const repoNoteTitle = `Code Repo - ${repo.name || repo.root || "Repo"}`;
+    if (!findNoteByTitle(repoNoteTitle)) {
+      proposals.push(makeProposal(
+        "repo_note",
+        "Créer la note du repo",
+        "Ancrer le vault au repo exécutable avec commit, branche et fichiers indexés.",
+        {
+          targetTitle: repoNoteTitle,
+          confidence: 0.8,
+          risk: "low",
+          evidence: [{ repo: repo.name || repo.root, commit: repo.commit, treeHash: repo.treeHash }],
+        }
+      ));
+    }
+  }
+
+  if (active && textIncludesAny(`${active.title}\n${active.body}`, ["paradoxe", "contradiction", "tension", "inverse", "mais aussi"])) {
+    const tensionTitle = `Tension - ${active.title}`;
+    if (!findNoteByTitle(tensionTitle)) {
+      proposals.push(makeProposal(
+        "create_tension",
+        "Isoler une tension paradoxale",
+        "La note active contient un conflit fertile qui mérite une fiche de clarification.",
+        {
+          targetId: active.id,
+          targetTitle: tensionTitle,
+          confidence: 0.66,
+          risk: "medium",
+          evidence: [{ id: active.id, title: active.title }],
+        }
+      ));
+    }
+  }
+
+  const hasDreamVocabulary = state.notes.some((note) => textIncludesAny(`${note.title}\n${note.body}`, ["mode rêve", "cycle rêve", "rem paradoxal", "onirique"]));
+  if (hasDreamVocabulary && !findNoteByTitle("Cycle rêve - Journal")) {
+    proposals.push(makeProposal(
+      "dream_cycle",
+      "Préparer un cycle rêve",
+      "Créer une note de consolidation nocturne : compression, mutation, oubli doux et scénarios.",
+      {
+        targetTitle: "Cycle rêve - Journal",
+        confidence: 0.63,
+        risk: "medium",
+        evidence: [{ motif: "mode rêve" }],
+      }
+    ));
+  }
+
+  if (proposals.length && !hasTodaysEnrichmentReport()) {
+    proposals.push(makeProposal(
+      "create_report",
+      "Documenter l'analyse",
+      "Créer une note de rapport pour garder la boucle auto-apprenante auditée.",
+      {
+        confidence: 0.7,
+        risk: "low",
+        evidence: [{ proposals: proposals.length }],
+      }
+    ));
+  }
+
+  return proposals;
+}
+
+function runDeterministicEnrichment(showToast = true) {
+  if (!requireVaultUnlocked("analyser le vault")) return null;
+  persistNow(false);
+  const stats = graphStats();
+  const proposals = buildDeterministicEnrichmentProposals();
+  const run = cleanEnrichmentRun({
+    id: `enrich@${nowIso()}`,
+    createdAt: nowIso(),
+    source: "vault-local",
+    mode: "review",
+    input: {
+      noteCount: stats.notes,
+      linkCount: stats.links,
+      folderCount: stats.folders,
+      activeTitle: activeNote()?.title || "",
+      repoLinked: repoIsLinked(),
+      repoTreeHash: state.repo?.treeHash || "",
+      latestSnapshot: latestSnapshot()?.id || "",
+    },
+    proposals,
+  }) as EnrichmentRun;
+
+  state.enrichmentRuns = [run, ...state.enrichmentRuns.filter((item) => item.id !== run.id)].slice(0, MAX_ENRICHMENT_RUNS);
+  persistEnrichmentRuns();
+  renderLearningPanel();
+  if (showToast) toast(proposals.length ? `${proposals.length} suggestion(s) générée(s).` : "Analyse terminée : rien d'urgent.");
+  return run;
+}
+
+function upsertSystemNote(title, folder, body, select = true) {
+  const existing = findNoteByTitle(title);
+  if (existing) {
+    existing.folder = normalizeFolder(folder);
+    existing.body = body;
+    existing.updatedAt = nowIso();
+    if (select) state.activeId = existing.id;
+    queueSave();
+    return existing;
+  }
+
+  const createdAt = nowIso();
+  const note = {
+    id: uid(),
+    title,
+    folder: normalizeFolder(folder),
+    body,
+    createdAt,
+    updatedAt: createdAt,
+    memoryTypes: inferMemoryTypesForNote({ title, folder, body }),
+  };
+  state.notes.unshift(note);
+  if (select) state.activeId = note.id;
+  queueSave();
+  return note;
+}
+
+function createShortContextNote() {
+  const note = activeNote();
+  if (!note) return null;
+  const outgoing = outgoingTargetsForNote(note).map((target) => target.title);
+  const backlinks = state.notes
+    .filter((candidate) => candidate.id !== note.id)
+    .filter((candidate) => extractWikiLinks(candidate.body).some((title) => normalizeTitle(title) === normalizeTitle(note.title)))
+    .map((candidate) => candidate.title);
+  const memoryLabels = effectiveMemoryTypes(note).map((typeId) => memoryTypeById(typeId)?.label || typeId);
+  const body = `# Contexte court - Session\n\n` +
+    `Mis à jour : ${formatLongDate(new Date())}\n\n` +
+    `## Mémoire immédiate\n\n` +
+    `- Note active : [[${note.title}]]\n` +
+    `- Dossier : ${normalizeFolder(note.folder)}\n` +
+    `- Types : ${memoryLabels.join(", ") || "à préciser"}\n` +
+    `- Dernière édition : ${formatDate(note.updatedAt)}\n\n` +
+    `## Charge mentale à déléguer\n\n` +
+    `- Clarifier la prochaine décision durable.\n` +
+    `- Garder les hypothèses séparées des convictions.\n` +
+    `- Transformer les actions exécutées en journal agentique.\n\n` +
+    `## Liens sortants\n\n${outgoing.map((title) => `- [[${title}]]`).join("\n") || "- Aucun lien sortant."}\n\n` +
+    `## Backlinks\n\n${backlinks.map((title) => `- [[${title}]]`).join("\n") || "- Aucun backlink."}\n\n` +
+    `## Mémoire longue à consulter\n\n` +
+    `- [[Exocortex apprenant - Index]]\n` +
+    `- [[Taxonomie des mémoires]]\n` +
+    `- [[Boucle auto-apprenante]]\n\n` +
+    `#contexte #memoire-immediate #systeme1`;
+  return upsertSystemNote("Contexte court - Session", "Mémoire immédiate", body, true);
+}
+
+function createTensionNote(sourceTitle = activeNote()?.title || "À qualifier") {
+  const source = findNoteByTitle(sourceTitle) || activeNote();
+  const title = source ? `Tension - ${source.title}` : "Tension - À qualifier";
+  const body = `# ${title}\n\n` +
+    `Source : ${source ? `[[${source.title}]]` : "à relier"}\n\n` +
+    `## Pôle A\n\n- \n\n` +
+    `## Pôle B\n\n- \n\n` +
+    `## Question paradoxale\n\nComment conserver les deux vérités sans réduire trop vite la tension ?\n\n` +
+    `## Hypothèse d'amélioration\n\n- \n\n` +
+    `#paradoxe #tension #strategie`;
+  return upsertSystemNote(title, "Mémoire stratégique", body, true);
+}
+
+function createDreamCycleNote() {
+  const body = `# Cycle rêve - Journal\n\n` +
+    `Cette note accueille les branches oniriques du vault : idées folles, analogies, inversions et simulations non mergées automatiquement.\n\n` +
+    `## Sommeil léger\n\n- Reclassement rapide\n- Détection des doublons\n- Notes froides vers archive profonde\n\n` +
+    `## Sommeil profond\n\n- Compression\n- Consolidation\n- Synthèse de décisions\n\n` +
+    `## REM paradoxal\n\n- Métaphores inattendues\n- Contradictions maximales\n- Scénarios fictifs\n- Mutations improbables\n\n` +
+    `## Réveil\n\n- Garder : \n- Rejeter : \n- Transformer en action : \n\n` +
+    `#reve #symbolique #prospective #anti-convergence`;
+  return upsertSystemNote("Cycle rêve - Journal", "Mémoire symbolique", body, true);
+}
+
+function createEnrichmentReport(run = latestEnrichmentRun()) {
+  if (!requireVaultUnlocked("créer le rapport d'enrichissement")) return null;
+  const currentRun = run || runDeterministicEnrichment(false);
+  if (!currentRun) return null;
+  const date = formatLocalDate(new Date(currentRun.createdAt));
+  const title = `Rapport d'enrichissement - ${date}`;
+  const proposals = currentRun.proposals || [];
+  const feedback = state.learningMemory?.feedback || {};
+  const body = `# ${title}\n\n` +
+    `Run : \`${currentRun.id}\`\n\n` +
+    `## État du vault\n\n` +
+    `- Notes : ${currentRun.input.noteCount || state.notes.length}\n` +
+    `- Liens : ${currentRun.input.linkCount || graphStats().links}\n` +
+    `- Dossiers : ${currentRun.input.folderCount || allFolders().length}\n` +
+    `- Repo lié : ${currentRun.input.repoLinked ? "oui" : "non"}\n` +
+    `- Snapshot : ${currentRun.input.latestSnapshot || "à créer"}\n\n` +
+    `## Suggestions\n\n${proposals.map((proposal) => `- [${proposal.status === "accepted" ? "x" : " "}] ${proposal.title} — ${proposal.detail} (${proposal.status}, confiance ${Math.round(proposal.confidence * 100)}%)`).join("\n") || "- Aucune suggestion."}\n\n` +
+    `## Feedback appris\n\n` +
+    `- Acceptées : ${Number(feedback.accepted || 0)}\n` +
+    `- Refusées : ${Number(feedback.rejected || 0)}\n` +
+    `- Modifiées : ${Number(feedback.modified || 0)}\n` +
+    `- Reward approximatif : ${Number(state.learningMemory?.lastReward || 0).toFixed(2)}\n\n` +
+    `## Prochaine amélioration logique\n\n- \n\n` +
+    `#enrichissement #audit #memoire-agentique`;
+  return upsertSystemNote(title, "Mémoire agentique", body, true);
+}
+
+function findProposalWithRun(proposalId) {
+  for (const run of state.enrichmentRuns) {
+    const proposal = run.proposals.find((item) => item.id === proposalId);
+    if (proposal) return { run, proposal };
+  }
+  return null;
+}
+
+function recordLearningFeedback(kind, proposal) {
+  const memory = cleanLearningMemory(state.learningMemory);
+  memory.feedback[kind] = Number(memory.feedback[kind] || 0) + 1;
+  const entry = {
+    at: nowIso(),
+    type: proposal.type,
+    title: proposal.title,
+    targetTitle: proposal.targetTitle || "",
+    confidence: proposal.confidence,
+  };
+  if (kind === "accepted") memory.acceptedPatterns = [entry, ...(memory.acceptedPatterns || [])].slice(0, 80);
+  if (kind === "rejected") memory.rejectedPatterns = [entry, ...(memory.rejectedPatterns || [])].slice(0, 80);
+  const total = Number(memory.feedback.accepted || 0) + Number(memory.feedback.rejected || 0) + Number(memory.feedback.modified || 0);
+  memory.lastReward = total ? (Number(memory.feedback.accepted || 0) - Number(memory.feedback.rejected || 0)) / total : 0;
+  state.learningMemory = memory;
+  persistLearningMemory();
+}
+
+async function applyEnrichmentProposal(proposalId) {
+  if (!requireVaultUnlocked("appliquer cette suggestion")) return;
+  const found = findProposalWithRun(proposalId);
+  if (!found || found.proposal.status !== "pending") return;
+  const { proposal } = found;
+
+  if (proposal.type === "assign_memory") {
+    let changed = 0;
+    for (const item of proposal.evidence || []) {
+      const note = state.notes.find((candidate) => candidate.id === item.id);
+      if (!note || cleanMemoryTypes(note.memoryTypes).length) continue;
+      note.memoryTypes = cleanMemoryTypes(item.inferred || inferMemoryTypesForNote(note));
+      note.updatedAt = nowIso();
+      changed += 1;
+    }
+    if (changed) queueSave();
+  }
+
+  if (proposal.type === "create_snapshot") {
+    await createVaultSnapshot({ silent: true });
+  }
+
+  if (proposal.type === "create_context") {
+    createShortContextNote();
+  }
+
+  if (proposal.type === "repo_note") {
+    ensureCodeRepoNote();
+  }
+
+  if (proposal.type === "create_tension") {
+    createTensionNote(proposal.targetTitle.replace(/^Tension - /, "") || activeNote()?.title);
+  }
+
+  if (proposal.type === "dream_cycle") {
+    createDreamCycleNote();
+  }
+
+  if (proposal.type === "create_report") {
+    createEnrichmentReport(found.run);
+  }
+
+  proposal.status = "accepted";
+  proposal.appliedAt = nowIso();
+  recordLearningFeedback("accepted", proposal);
+  persistEnrichmentRuns();
+  renderAll();
+  toast("Suggestion appliquée et mémorisée.");
+}
+
+function rejectEnrichmentProposal(proposalId) {
+  if (!requireVaultUnlocked("ignorer cette suggestion")) return;
+  const found = findProposalWithRun(proposalId);
+  if (!found || found.proposal.status !== "pending") return;
+  found.proposal.status = "rejected";
+  found.proposal.appliedAt = nowIso();
+  recordLearningFeedback("rejected", found.proposal);
+  persistEnrichmentRuns();
+  renderLearningPanel();
+  toast("Suggestion ignorée, signal conservé.");
+}
+
+function renderLearningPanel() {
+  if (!els.learningStatus) return;
+  if (vaultLocked()) {
+    els.learningStatus.textContent = "Verrouillé";
+    els.runEnrichmentBtn.disabled = true;
+    els.createEnrichmentReportBtn.disabled = true;
+    els.memoryTypeChips.innerHTML = "";
+    els.immediateContextSummary.innerHTML = `<div class="empty-state">Déverrouille le vault pour lire la mémoire apprenante.</div>`;
+    els.learningMetrics.innerHTML = "";
+    els.suggestionsList.innerHTML = "";
+    return;
+  }
+
+  const note = activeNote();
+  const explicitTypes = new Set(cleanMemoryTypes(note?.memoryTypes));
+  const activeTypes = new Set(effectiveMemoryTypes(note));
+  const pending = pendingEnrichmentProposals();
+  const latest = latestEnrichmentRun();
+  const feedback = state.learningMemory?.feedback || {};
+  const totalFeedback = Number(feedback.accepted || 0) + Number(feedback.rejected || 0) + Number(feedback.modified || 0);
+
+  els.learningStatus.textContent = pending.length ? `${pending.length} à relire` : latest ? "Stable" : "À analyser";
+  els.runEnrichmentBtn.disabled = false;
+  els.createEnrichmentReportBtn.disabled = false;
+
+  els.memoryTypeChips.innerHTML = MEMORY_TYPES
+    .map((type) => {
+      const active = activeTypes.has(type.id);
+      const inferred = active && !explicitTypes.has(type.id);
+      const classes = ["memory-type-chip", active ? "active" : "", inferred ? "inferred" : ""].filter(Boolean).join(" ");
+      return `<button class="${classes}" type="button" data-memory-type="${attr(type.id)}" title="${attr(type.detail)}">${escapeHtml(type.label)}</button>`;
+    })
+    .join("");
+
+  if (!note) {
+    els.immediateContextSummary.innerHTML = `<div class="empty-state">Aucune note active.</div>`;
+  } else {
+    const outgoing = outgoingTargetsForNote(note).length;
+    const backlinks = state.notes
+      .filter((candidate) => candidate.id !== note.id)
+      .filter((candidate) => extractWikiLinks(candidate.body).some((title) => normalizeTitle(title) === normalizeTitle(note.title))).length;
+    const types = [...activeTypes].map((typeId) => memoryTypeById(typeId)?.label || typeId).join(", ");
+    els.immediateContextSummary.innerHTML = `
+      <strong>${escapeHtml(note.title)}</strong>
+      <span>${escapeHtml(types)} · ${outgoing} sortant(s) · ${backlinks} backlink(s)</span>`;
+  }
+
+  els.learningMetrics.innerHTML = `
+    <span>${state.enrichmentRuns.length} run(s)</span>
+    <span>${Number(feedback.accepted || 0)} ok</span>
+    <span>${Number(feedback.rejected || 0)} non</span>
+    <span>reward ${totalFeedback ? Number(state.learningMemory?.lastReward || 0).toFixed(2) : "0.00"}</span>`;
+
+  if (!latest) {
+    els.suggestionsList.innerHTML = `<div class="empty-state">Lance une analyse pour générer des améliorations relisibles.</div>`;
+    return;
+  }
+
+  if (!pending.length) {
+    els.suggestionsList.innerHTML = `<div class="empty-state">Dernier run traité. Relance l'analyse après un changement important.</div>`;
+    return;
+  }
+
+  els.suggestionsList.innerHTML = pending
+    .map((proposal) => `
+      <article class="suggestion-card">
+        <header>
+          <strong>${escapeHtml(proposal.title)}</strong>
+          <span>${Math.round(proposal.confidence * 100)}% · ${escapeHtml(proposal.risk)}</span>
+        </header>
+        <p>${escapeHtml(proposal.detail)}</p>
+        <div class="suggestion-actions">
+          <button class="primary-btn" type="button" data-proposal-accept="${attr(proposal.id)}">Appliquer</button>
+          <button class="ghost-btn" type="button" data-proposal-reject="${attr(proposal.id)}">Ignorer</button>
+        </div>
+      </article>`)
     .join("");
 }
 
@@ -2648,6 +3369,7 @@ function renderAll() {
   renderVaultSwitcher();
   renderSecurityPanel();
   renderSnapshotsPanel();
+  renderLearningPanel();
   renderRepoPanel();
   renderGithubPanel();
   renderVaultStats();
@@ -3100,6 +3822,7 @@ function makeCodexNoteMarkdown(file, context) {
   const links = linksForFile(file, context).map((edge) => edge.toTitle);
   const backlinks = backlinksForFile(file, context).map((edge) => edge.fromTitle);
   const tags = tagsForNote(note);
+  const memoryTypes = effectiveMemoryTypes(note);
   const body = convertWikiLinksForCodex((note.body || `# ${note.title}\n\n`).trimEnd(), context);
 
   return `---\n` +
@@ -3109,6 +3832,7 @@ function makeCodexNoteMarkdown(file, context) {
     `createdAt: ${yamlString(note.createdAt)}\n` +
     `updatedAt: ${yamlString(note.updatedAt)}\n` +
     `starred: ${isStarred(note.id) ? "true" : "false"}\n` +
+    `memoryTypes: ${JSON.stringify(memoryTypes)}\n` +
     `tags: ${JSON.stringify(tags)}\n` +
     `links: ${JSON.stringify(links)}\n` +
     `backlinks: ${JSON.stringify(backlinks)}\n` +
@@ -3225,6 +3949,7 @@ function makeCodexManifest(context) {
       starred: isStarred(file.id),
       createdAt: file.note.createdAt,
       updatedAt: file.note.updatedAt,
+      memoryTypes: effectiveMemoryTypes(file.note),
       tags: tagsForNote(file.note),
       links: linksForFile(file, context).map((edge) => ({ title: edge.toTitle, path: edge.toSlug ? `knowledge/notes/${edge.toSlug}.md` : null, missing: edge.missing })),
       backlinks: backlinksForFile(file, context).map((edge) => ({ title: edge.fromTitle, path: `knowledge/notes/${edge.fromSlug}.md` })),
@@ -3245,6 +3970,7 @@ function makeCodexGraph(context) {
       id: file.slug,
       title: file.title,
       path: file.path,
+      memoryTypes: effectiveMemoryTypes(file.note),
       tags: tagsForNote(file.note),
     })),
     edges: context.edges.map((edge) => ({
@@ -3964,6 +4690,10 @@ function buildSnapshotContent(createdAt) {
     },
     repo: repoExportPayload(false),
     githubSync: githubSyncExportPayload(),
+    learning: {
+      memory: learningMemoryExportPayload(),
+      runs: enrichmentRunsExportPayload().slice(0, 10),
+    },
     summary: {
       noteCount: stats.notes,
       linkCount: stats.links,
@@ -3974,6 +4704,9 @@ function buildSnapshotContent(createdAt) {
       repoCommit: state.repo.commit || "",
       repoTreeHash: state.repo.treeHash || "",
       githubLinked: Boolean(state.githubSync.repoFullName),
+      enrichmentRunCount: state.enrichmentRuns.length,
+      learningAccepted: Number(state.learningMemory?.feedback?.accepted || 0),
+      learningRejected: Number(state.learningMemory?.feedback?.rejected || 0),
     },
   };
 }
@@ -4202,6 +4935,8 @@ function exportVault() {
     security: securityExportPayload(),
     repo: repoExportPayload(true),
     githubSync: githubSyncExportPayload(),
+    learningMemory: learningMemoryExportPayload(),
+    enrichmentRuns: enrichmentRunsExportPayload(),
     snapshots: state.snapshots,
     notes: state.notes,
   };
@@ -4863,6 +5598,14 @@ function normalizeVaultImportPayload(parsed) {
     security: source?.security || parsed?.security || null,
     repo: source?.repo || parsed?.repo || null,
     githubSync: source?.githubSync || parsed?.githubSync || parsed?.github || null,
+    learningMemory: source?.learningMemory || source?.learning?.memory || parsed?.learningMemory || null,
+    enrichmentRuns: Array.isArray(source?.enrichmentRuns)
+      ? source.enrichmentRuns
+      : Array.isArray(source?.learning?.runs)
+        ? source.learning.runs
+        : Array.isArray(parsed?.enrichmentRuns)
+          ? parsed.enrichmentRuns
+          : [],
     graphPositions: source?.graphPositions && typeof source.graphPositions === "object" ? source.graphPositions : null,
     layout: source?.layout && typeof source.layout === "object" ? source.layout : null,
     snapshots,
@@ -4908,8 +5651,14 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
       state.githubSync = cleanGithubSyncState(payload.githubSync);
       persistGithubSyncState();
     }
+    state.learningMemory = cleanLearningMemory(payload.learningMemory);
+    state.enrichmentRuns = Array.isArray(payload.enrichmentRuns)
+      ? payload.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
+      : [];
     state.snapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS);
     persistSnapshots();
+    persistLearningMemory();
+    persistEnrichmentRuns();
     persistGraphPositions();
   } else {
     const idMap = new Map();
@@ -4946,6 +5695,30 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, MAX_SNAPSHOTS);
       persistSnapshots();
+    }
+    if (payload.learningMemory) {
+      const imported = cleanLearningMemory(payload.learningMemory);
+      state.learningMemory = cleanLearningMemory({
+        ...state.learningMemory,
+        feedback: {
+          accepted: Number(state.learningMemory?.feedback?.accepted || 0) + Number(imported.feedback.accepted || 0),
+          rejected: Number(state.learningMemory?.feedback?.rejected || 0) + Number(imported.feedback.rejected || 0),
+          modified: Number(state.learningMemory?.feedback?.modified || 0) + Number(imported.feedback.modified || 0),
+          autoApplied: Number(state.learningMemory?.feedback?.autoApplied || 0) + Number(imported.feedback.autoApplied || 0),
+        },
+        acceptedPatterns: [...(state.learningMemory?.acceptedPatterns || []), ...(imported.acceptedPatterns || [])],
+        rejectedPatterns: [...(state.learningMemory?.rejectedPatterns || []), ...(imported.rejectedPatterns || [])],
+        confidenceRules: [...(state.learningMemory?.confidenceRules || []), ...(imported.confidenceRules || [])],
+      });
+      persistLearningMemory();
+    }
+    if (Array.isArray(payload.enrichmentRuns) && payload.enrichmentRuns.length) {
+      const importedRuns = payload.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean) as EnrichmentRun[];
+      const byId = new Map([...state.enrichmentRuns, ...importedRuns].map((run) => [run.id, run]));
+      state.enrichmentRuns = [...byId.values()]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, MAX_ENRICHMENT_RUNS);
+      persistEnrichmentRuns();
     }
     for (const id of payload.starredIds) {
       const nextId = idMap.get(id);
@@ -5006,6 +5779,10 @@ async function createVaultFromImportPayload(parsed, rawName) {
   state.snapshots = payload.snapshots.map(cleanSnapshot).filter(Boolean).slice(0, MAX_SNAPSHOTS);
   state.repo = payload.repo ? cleanRepoState(payload.repo) : cleanRepoState(null);
   state.githubSync = payload.githubSync ? cleanGithubSyncState(payload.githubSync) : cleanGithubSyncState(null);
+  state.learningMemory = cleanLearningMemory(payload.learningMemory);
+  state.enrichmentRuns = Array.isArray(payload.enrichmentRuns)
+    ? payload.enrichmentRuns.map(cleanEnrichmentRun).filter(Boolean).slice(0, MAX_ENRICHMENT_RUNS) as EnrichmentRun[]
+    : [];
   els.searchInput.value = "";
 
   localStorage.setItem(vaultStorageKey("view"), state.view);
@@ -5015,6 +5792,8 @@ async function createVaultFromImportPayload(parsed, rawName) {
   persistLayoutSettings();
   persistGraphPositions();
   persistSnapshots();
+  persistLearningMemory();
+  persistEnrichmentRuns();
   persistStarredIds();
   persistNow(true);
   applyLayoutSettings();
@@ -5109,6 +5888,8 @@ function loadActiveVaultState() {
   state.snapshots = vaultEncrypted() ? [] : loadSnapshots();
   state.repo = loadRepoState();
   state.githubSync = loadGithubSyncState();
+  state.learningMemory = vaultEncrypted() ? cleanLearningMemory(null) : loadLearningMemory();
+  state.enrichmentRuns = vaultEncrypted() ? [] : loadEnrichmentRuns() as EnrichmentRun[];
   els.searchInput.value = "";
   loadStore();
   ensureDocumentationVault({ silent: true });
@@ -5639,6 +6420,8 @@ function resetDemo() {
   state.snapshots = [];
   state.repo = cleanRepoState(null);
   state.githubSync = cleanGithubSyncState(null);
+  state.learningMemory = cleanLearningMemory(null);
+  state.enrichmentRuns = [];
   els.searchInput.value = "";
   ensureDocumentationVault({ silent: true });
   persistStarredIds();
@@ -5646,6 +6429,8 @@ function resetDemo() {
   persistSnapshots();
   persistRepoState();
   persistGithubSyncState();
+  persistLearningMemory();
+  persistEnrichmentRuns();
   persistNow(true);
   renderAll();
   toast("Démo réinitialisée.");
@@ -5661,6 +6446,7 @@ function handleEditorInput() {
   renderBacklinks();
   renderNoteTags();
   renderOutgoingLinks();
+  renderLearningPanel();
   renderTagFilters();
   renderNotesList();
   renderGraph();
@@ -5675,6 +6461,7 @@ function handleTitleInput() {
   renderBacklinks();
   renderNoteTags();
   renderOutgoingLinks();
+  renderLearningPanel();
   renderTagFilters();
   renderFolderSuggestions();
   renderStarredList();
@@ -5691,6 +6478,7 @@ function handleFolderInput() {
   renderFolderSuggestions();
   renderStarredList();
   renderNotesList();
+  renderLearningPanel();
 }
 
 function bindEvents() {
@@ -5718,6 +6506,13 @@ function bindEvents() {
   els.exportVaultBtn.addEventListener("click", exportVault);
   els.createSnapshotBtn.addEventListener("click", () => createVaultSnapshot());
   els.exportSnapshotBtn.addEventListener("click", () => exportSnapshot());
+  els.runEnrichmentBtn.addEventListener("click", () => runDeterministicEnrichment());
+  els.createEnrichmentReportBtn.addEventListener("click", () => {
+    const report = createEnrichmentReport(latestEnrichmentRun() || runDeterministicEnrichment(false));
+    if (!report) return;
+    renderAll();
+    toast("Rapport d'enrichissement créé.");
+  });
   els.importRepoBtn.addEventListener("click", () => els.repoManifestInput.click());
   els.repoManifestInput.addEventListener("change", (event) => importRepoManifest(event.target.files?.[0]));
   els.exportRepoBtn.addEventListener("click", exportRepoManifest);
@@ -5757,6 +6552,18 @@ function bindEvents() {
   els.snapshotsList.addEventListener("click", (event) => {
     const row = event.target.closest("[data-snapshot-id]");
     if (row) exportSnapshot(row.dataset.snapshotId);
+  });
+
+  els.memoryTypeChips.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-memory-type]");
+    if (chip) toggleActiveNoteMemoryType(chip.dataset.memoryType);
+  });
+
+  els.suggestionsList.addEventListener("click", (event) => {
+    const accept = event.target.closest("[data-proposal-accept]");
+    const reject = event.target.closest("[data-proposal-reject]");
+    if (accept) void applyEnrichmentProposal(accept.dataset.proposalAccept);
+    if (reject) rejectEnrichmentProposal(reject.dataset.proposalReject);
   });
 
   els.searchInput.addEventListener("input", () => {
