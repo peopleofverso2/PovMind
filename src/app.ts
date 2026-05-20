@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.14.0";
+const APP_VERSION = "0.15.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -326,6 +326,7 @@ const els: Record<string, any> = {
   runWakeCycleBtn: document.getElementById("runWakeCycleBtn"),
   exportCognitiveCronBtn: document.getElementById("exportCognitiveCronBtn"),
   cognitiveCyclesList: document.getElementById("cognitiveCyclesList"),
+  wakeReviewPanel: document.getElementById("wakeReviewPanel"),
   suggestionsList: document.getElementById("suggestionsList"),
   repoStatus: document.getElementById("repoStatus"),
   repoNameLabel: document.getElementById("repoNameLabel"),
@@ -1074,6 +1075,7 @@ function cleanLearningMemory(value) {
     },
     acceptedPatterns: Array.isArray(value?.acceptedPatterns) ? value.acceptedPatterns.slice(0, 80) : [],
     rejectedPatterns: Array.isArray(value?.rejectedPatterns) ? value.rejectedPatterns.slice(0, 80) : [],
+    decisionLog: Array.isArray(value?.decisionLog) ? value.decisionLog.slice(0, 120) : [],
     confidenceRules: Array.isArray(value?.confidenceRules) ? value.confidenceRules.slice(0, 40) : [],
     memoryWeights: {
       ...defaultMemoryWeights(),
@@ -1592,7 +1594,7 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
     {
       title: "PovMind - Boucle cognitive",
       folder: "Documentation PovMind",
-      body: `# PovMind - Boucle cognitive\n\nLa boucle cognitive transforme le vault en système auto-apprenant traçable sans perdre le contrôle humain.\n\n## Phases\n\n- Jour : capture, action, contexte court, analyse déterministe, snapshot.\n- Nuit : compression, notes froides, consolidation symbolique, mode rêve.\n- Réveil : agenda de validation, delta snapshots, feedback accepté/refusé, prochaine action.\n\n## Score\n\nLe ratio d'auto-amélioration agrège la couverture mémoire, la densité de liens, la fraîcheur du snapshot, le feedback humain, l'ancrage repo, la continuité des cycles, la pression de suggestions et les notes froides.\n\n## Réveil\n\nLe réveil transforme les sorties nocturnes en décisions : relire le delta, accepter ou rejeter les propositions, puis créer un nouveau snapshot après arbitrage. C'est la couche reward signal de PovMind.\n\n## Cron GitHub\n\nL'export de contexte ajoute :\n\n- \`.povmind/automation/cognitive-loop.json\`\n- \`.povmind/automation/cognitive-loop.md\`\n- \`.github/workflows/povmind-cognitive-loop.yml\`\n\nLe cron GitHub audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne merge jamais automatiquement les sorties de rêve.\n\n## Garde-fous\n\n- Le rêve produit des hypothèses, pas des décisions.\n- Le reward signal vient du feedback humain.\n- Le snapshot fige le quoi; le journal explique le pourquoi.\n- Le repo reste la source exécutable.\n\nVoir [[PovMind - GitHub sync]], [[PovMind - Snapshots du vault]] et [[PovMind - Backlog contexte]]. #cycle-cognitif #auto-apprentissage #cron`,
+      body: `# PovMind - Boucle cognitive\n\nLa boucle cognitive transforme le vault en système auto-apprenant traçable sans perdre le contrôle humain.\n\n## Phases\n\n- Jour : capture, action, contexte court, analyse déterministe, snapshot.\n- Nuit : compression, notes froides, consolidation symbolique, mode rêve.\n- Réveil : agenda de validation, delta snapshots, feedback accepté/refusé, prochaine action.\n\n## Score\n\nLe ratio d'auto-amélioration agrège la couverture mémoire, la densité de liens, la fraîcheur du snapshot, le feedback humain, l'ancrage repo, la continuité des cycles, la pression de suggestions et les notes froides.\n\n## Réveil\n\nLe réveil transforme les sorties nocturnes en décisions : relire le delta, accepter, rejeter ou transformer une proposition en action. Chaque arbitrage alimente le journal de décisions et le reward signal de PovMind.\n\n## Cron GitHub\n\nL'export de contexte ajoute :\n\n- \`.povmind/automation/cognitive-loop.json\`\n- \`.povmind/automation/cognitive-loop.md\`\n- \`.github/workflows/povmind-cognitive-loop.yml\`\n\nLe cron GitHub audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne merge jamais automatiquement les sorties de rêve.\n\n## Garde-fous\n\n- Le rêve produit des hypothèses, pas des décisions.\n- Le reward signal vient du feedback humain.\n- Le snapshot fige le quoi; le journal explique le pourquoi.\n- Le repo reste la source exécutable.\n\nVoir [[PovMind - GitHub sync]], [[PovMind - Snapshots du vault]] et [[PovMind - Backlog contexte]]. #cycle-cognitif #auto-apprentissage #cron`,
     },
     {
       title: "PovMind - Backlog contexte",
@@ -1613,6 +1615,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Importer un dossier Obsidian en nouveau vault PovMind avec dossiers et liens wiki.
 - [x] Scanner un repo GitHub en vault dev ou enrichir le vault actif avec des patterns communs.
 - [x] Ajouter le cycle Réveil avec agenda de validation et delta snapshots.
+- [x] Ajouter un panneau Réveil interactif avec action, acceptation, rejet et journal de décisions.
 
 ## À prioriser
 
@@ -2399,17 +2402,47 @@ function recordLearningFeedback(kind, proposal) {
   memory.feedback[kind] = Number(memory.feedback[kind] || 0) + 1;
   const entry = {
     at: nowIso(),
+    decision: kind,
     type: proposal.type,
     title: proposal.title,
+    detail: proposal.detail || "",
     targetTitle: proposal.targetTitle || "",
     confidence: proposal.confidence,
   };
+  memory.decisionLog = [entry, ...(memory.decisionLog || [])].slice(0, 120);
   if (kind === "accepted") memory.acceptedPatterns = [entry, ...(memory.acceptedPatterns || [])].slice(0, 80);
   if (kind === "rejected") memory.rejectedPatterns = [entry, ...(memory.rejectedPatterns || [])].slice(0, 80);
   const total = Number(memory.feedback.accepted || 0) + Number(memory.feedback.rejected || 0) + Number(memory.feedback.modified || 0);
   memory.lastReward = total ? (Number(memory.feedback.accepted || 0) - Number(memory.feedback.rejected || 0)) / total : 0;
   state.learningMemory = memory;
   persistLearningMemory();
+}
+
+function proposalEvidenceMarkdown(proposal) {
+  const evidence = Array.isArray(proposal.evidence) ? proposal.evidence : [];
+  if (!evidence.length) return "- Aucun signal détaillé.";
+  return evidence.slice(0, 8).map((item) => `- \`${truncateText(stableJson(item), 220)}\``).join("\n");
+}
+
+function createActionFromProposalNote(proposal, run) {
+  const title = `Action réveil - ${proposal.title}`;
+  const body = `# ${title}\n\n` +
+    `Origine : proposition \`${proposal.id}\`${run?.id ? ` du run \`${run.id}\`` : ""}.\n` +
+    `Décision : transformer en action, sans application automatique.\n\n` +
+    `## Intention\n\n${proposal.detail || "Action à préciser."}\n\n` +
+    `## Checklist\n\n` +
+    `- [ ] Clarifier le résultat attendu.\n` +
+    `- [ ] Exécuter ou planifier l'action.\n` +
+    `- [ ] Noter le résultat réel.\n` +
+    `- [ ] Créer un snapshot après arbitrage.\n\n` +
+    `## Signal source\n\n` +
+    `- Type : ${proposal.type}\n` +
+    `- Confiance : ${Math.round(Number(proposal.confidence || 0) * 100)}%\n` +
+    `- Risque : ${proposal.risk || "low"}\n` +
+    `- Cible : ${proposal.targetTitle || proposal.targetId || "vault"}\n\n` +
+    `## Évidence\n\n${proposalEvidenceMarkdown(proposal)}\n\n` +
+    `#action #reveil #memoire-agentique #decision`;
+  return upsertSystemNote(title, "Mémoire agentique", body, true);
 }
 
 async function applyEnrichmentProposal(proposalId) {
@@ -2472,6 +2505,19 @@ function rejectEnrichmentProposal(proposalId) {
   persistEnrichmentRuns();
   renderLearningPanel();
   toast("Suggestion ignorée, signal conservé.");
+}
+
+function transformEnrichmentProposalToAction(proposalId) {
+  if (!requireVaultUnlocked("transformer cette suggestion en action")) return;
+  const found = findProposalWithRun(proposalId);
+  if (!found || found.proposal.status !== "pending") return;
+  const note = createActionFromProposalNote(found.proposal, found.run);
+  found.proposal.status = "modified";
+  found.proposal.appliedAt = nowIso();
+  recordLearningFeedback("modified", found.proposal);
+  persistEnrichmentRuns();
+  renderAll();
+  toast(`Action créée : ${note?.title || found.proposal.title}.`);
 }
 
 function backlinksForNoteId(noteId) {
@@ -2732,6 +2778,7 @@ function createWakeAgendaNote(run = latestEnrichmentRun(), snapshot = latestSnap
   const pending = (run?.proposals || []).filter((proposal) => proposal.status === "pending");
   const lastCycle = state.cognitiveCycles[0];
   const feedback = state.learningMemory?.feedback || {};
+  const decisions = Array.isArray(state.learningMemory?.decisionLog) ? state.learningMemory.decisionLog.slice(0, 6) : [];
   const title = `Agenda réveil - ${formatLocalDate(new Date())}`;
   const pendingRows = pending.slice(0, 12).map((proposal) =>
     `- [ ] ${proposal.title} (${Math.round(Number(proposal.confidence || 0) * 100)}%, ${proposal.risk})\n` +
@@ -2743,6 +2790,7 @@ function createWakeAgendaNote(run = latestEnrichmentRun(), snapshot = latestSnap
       `- Synthèse : ${lastCycle.summary || "Cycle enregistré."}\n` +
       `${(lastCycle.outputs || []).slice(0, 5).map((output) => `- Sortie : ${output.type} ${output.title || output.id || ""}`.trim()).join("\n")}`
     : "- Aucun cycle précédent.";
+  const decisionRows = decisions.map((entry) => `- ${decisionLabel(entry.decision)} : ${entry.title || entry.type || "signal"} (${formatDate(entry.at)})`).join("\n");
   const body = `# ${title}\n\n` +
     `Phase : réveil / arbitrage humain / reward signal.\n\n` +
     `## Score\n\n` +
@@ -2752,6 +2800,7 @@ function createWakeAgendaNote(run = latestEnrichmentRun(), snapshot = latestSnap
     `- Feedback refusé : ${Number(feedback.rejected || 0)}\n\n` +
     `${formatSnapshotDeltaMarkdown(delta)}\n\n` +
     `## À valider\n\n${pendingRows || "- [ ] Rien d'urgent. Choisir une prochaine action volontaire."}\n\n` +
+    `## Décisions récentes\n\n${decisionRows || "- Aucune décision enregistrée."}\n\n` +
     `## Trace du cycle précédent\n\n${lastCycleRows}\n\n` +
     `## Prochaine action\n\n` +
     `- [ ] Valider au moins une suggestion ou noter pourquoi elle est rejetée.\n` +
@@ -2891,6 +2940,15 @@ function makeCognitiveLoopSpec(snapshot = latestSnapshot(), score = calculateLea
       contentHash: snapshot.hash,
     } : null,
     latestSnapshotDelta: latestDelta,
+    wakeReview: {
+      pendingDecisions: pendingEnrichmentProposals().length,
+      lastWakeCycle: latestCognitiveCycle("wake") ? {
+        id: latestCognitiveCycle("wake").id,
+        createdAt: latestCognitiveCycle("wake").createdAt,
+        snapshotHash: latestCognitiveCycle("wake").snapshotHash,
+      } : null,
+      decisionLog: Array.isArray(state.learningMemory?.decisionLog) ? state.learningMemory.decisionLog.slice(0, 10) : [],
+    },
     guardrails: [
       "Never merge dream outputs automatically.",
       "Human feedback is the reward signal.",
@@ -2919,6 +2977,10 @@ function makeCognitiveLoopMarkdown(spec) {
     `- Réveil : agenda de validation, delta snapshots, acceptation/refus, prochaine action.\n\n` +
     `## Dernier delta\n\n` +
     `${snapshotDeltaSummary(spec.latestSnapshotDelta)}\n\n` +
+    `## Réveil interactif\n\n` +
+    `- Décisions ouvertes : ${Number(spec.wakeReview?.pendingDecisions || 0)}\n` +
+    `- Dernier réveil : ${spec.wakeReview?.lastWakeCycle?.createdAt || "aucun"}\n` +
+    `- Journal de décisions : ${Array.isArray(spec.wakeReview?.decisionLog) ? spec.wakeReview.decisionLog.length : 0} entrée(s)\n\n` +
     `## GitHub cron\n\n` +
     `Le workflow \`.github/workflows/povmind-cognitive-loop.yml\` audite la fraîcheur du contexte versionné. Il ne lit pas le vault local du navigateur et ne remplace pas la validation humaine.\n\n` +
     `## Garde-fous\n\n${spec.guardrails.map((line) => `- ${line}`).join("\n")}\n`;
@@ -2996,6 +3058,59 @@ async function exportCognitiveCronBundle() {
   return { context, files, snapshot };
 }
 
+function latestCognitiveCycle(phase = "") {
+  return state.cognitiveCycles.find((cycle) => !phase || cycle.phase === phase) || null;
+}
+
+function decisionLabel(decision) {
+  if (decision === "accepted") return "accepté";
+  if (decision === "rejected") return "refusé";
+  if (decision === "modified") return "action";
+  return String(decision || "signal");
+}
+
+function renderWakeReviewPanel(pending, score) {
+  if (!els.wakeReviewPanel) return;
+  const wake = latestCognitiveCycle("wake");
+  const snapshot = latestSnapshot();
+  const delta = snapshot ? compareSnapshots(snapshot, previousSnapshotFor(snapshot)) : null;
+  const feedback = state.learningMemory?.feedback || {};
+  const decisions = Array.isArray(state.learningMemory?.decisionLog) ? state.learningMemory.decisionLog.slice(0, 3) : [];
+  const reward = Number(state.learningMemory?.lastReward || 0);
+  const queueRows = pending.slice(0, 3).map((proposal) => `
+    <li>
+      <strong>${escapeHtml(proposal.title)}</strong>
+      <span>${Math.round(Number(proposal.confidence || 0) * 100)}% · ${escapeHtml(proposal.risk || "low")}</span>
+    </li>`).join("");
+  const decisionRows = decisions.map((entry) => `
+    <li>
+      <strong>${escapeHtml(decisionLabel(entry.decision))}</strong>
+      <span>${escapeHtml(entry.title || entry.type || "Décision")}</span>
+    </li>`).join("");
+
+  els.wakeReviewPanel.innerHTML = `
+    <div class="wake-review-head">
+      <span>Réveil</span>
+      <strong>${pending.length} décision(s)</strong>
+    </div>
+    <div class="wake-review-metrics">
+      <span title="${attr(snapshotDeltaSummary(delta))}">delta ${escapeHtml(delta ? `${Number(delta.addedCount || 0)}/${Number(delta.updatedCount || 0)}/${Number(delta.removedCount || 0)}` : "—")}</span>
+      <span>reward ${reward.toFixed(2)}</span>
+      <span>${Number(feedback.accepted || 0)} ok</span>
+      <span>${Number(feedback.modified || 0)} action(s)</span>
+    </div>
+    <div class="wake-review-actions">
+      <button class="ghost-btn" type="button" data-wake-run>Relancer</button>
+      <button class="ghost-btn" type="button" data-wake-snapshot>Snapshot</button>
+    </div>
+    <div class="wake-review-detail">
+      <strong>${wake ? `Dernier réveil · ${escapeHtml(formatDate(wake.createdAt))}` : "Aucun réveil enregistré"}</strong>
+      <span>${escapeHtml(delta ? snapshotDeltaSummary(delta) : "Crée un premier snapshot pour activer le delta.")}</span>
+    </div>
+    ${pending.length ? `<ol class="wake-review-list">${queueRows}</ol>` : `<div class="empty-state">Aucune décision ouverte.</div>`}
+    ${decisions.length ? `<ol class="wake-review-list decision-log">${decisionRows}</ol>` : ""}`;
+}
+
 function renderLearningPanel() {
   if (!els.learningStatus) return;
   if (vaultLocked()) {
@@ -3012,6 +3127,7 @@ function renderLearningPanel() {
     els.cycleMetrics.innerHTML = "";
     els.cognitiveScore.textContent = "0%";
     els.cognitiveCyclesList.innerHTML = "";
+    els.wakeReviewPanel.innerHTML = "";
     els.suggestionsList.innerHTML = "";
     return;
   }
@@ -3076,6 +3192,8 @@ function renderLearningPanel() {
         </button>`).join("")
     : `<div class="empty-state">Aucun cycle enregistré.</div>`;
 
+  renderWakeReviewPanel(pending, score);
+
   if (!latest) {
     els.suggestionsList.innerHTML = `<div class="empty-state">Lance une analyse pour générer des améliorations relisibles.</div>`;
     return;
@@ -3096,6 +3214,7 @@ function renderLearningPanel() {
         <p>${escapeHtml(proposal.detail)}</p>
         <div class="suggestion-actions">
           <button class="primary-btn" type="button" data-proposal-accept="${attr(proposal.id)}">Appliquer</button>
+          <button class="ghost-btn" type="button" data-proposal-action="${attr(proposal.id)}">Action</button>
           <button class="ghost-btn" type="button" data-proposal-reject="${attr(proposal.id)}">Ignorer</button>
         </div>
       </article>`)
@@ -6385,6 +6504,7 @@ function applyImportedVaultPayload(parsed, sourceLabel = "Import") {
         },
         acceptedPatterns: [...(state.learningMemory?.acceptedPatterns || []), ...(imported.acceptedPatterns || [])],
         rejectedPatterns: [...(state.learningMemory?.rejectedPatterns || []), ...(imported.rejectedPatterns || [])],
+        decisionLog: [...(state.learningMemory?.decisionLog || []), ...(imported.decisionLog || [])],
         confidenceRules: [...(state.learningMemory?.confidenceRules || []), ...(imported.confidenceRules || [])],
       });
       persistLearningMemory();
@@ -7277,9 +7397,18 @@ function bindEvents() {
 
   els.suggestionsList.addEventListener("click", (event) => {
     const accept = event.target.closest("[data-proposal-accept]");
+    const action = event.target.closest("[data-proposal-action]");
     const reject = event.target.closest("[data-proposal-reject]");
     if (accept) void applyEnrichmentProposal(accept.dataset.proposalAccept);
+    if (action) transformEnrichmentProposalToAction(action.dataset.proposalAction);
     if (reject) rejectEnrichmentProposal(reject.dataset.proposalReject);
+  });
+
+  els.wakeReviewPanel.addEventListener("click", (event) => {
+    const run = event.target.closest("[data-wake-run]");
+    const snapshot = event.target.closest("[data-wake-snapshot]");
+    if (run) void runCognitiveWakeCycle();
+    if (snapshot) void createVaultSnapshot();
   });
 
   els.searchInput.addEventListener("input", () => {

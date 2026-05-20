@@ -1293,6 +1293,121 @@ button:disabled {
   white-space: nowrap;
 }
 
+.wake-review-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid rgba(243, 38, 23, 0.32);
+  border-radius: 6px;
+  padding: 9px;
+  background: #241f1f;
+}
+
+.wake-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wake-review-head span {
+  color: var(--muted-2);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wake-review-head strong {
+  color: var(--accent-3);
+  font-size: 0.78rem;
+}
+
+.wake-review-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.wake-review-metrics span {
+  overflow: hidden;
+  border-radius: 5px;
+  padding: 5px 7px;
+  background: #2d2929;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wake-review-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.wake-review-actions .ghost-btn {
+  min-height: 32px;
+  padding: 5px 7px;
+  font-size: 0.74rem;
+}
+
+.wake-review-detail {
+  display: grid;
+  gap: 3px;
+}
+
+.wake-review-detail strong {
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.wake-review-detail span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wake-review-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wake-review-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border-radius: 5px;
+  padding: 5px 7px;
+  background: #2a2626;
+}
+
+.wake-review-list strong,
+.wake-review-list span {
+  overflow: hidden;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wake-review-list strong {
+  color: var(--ink);
+}
+
+.wake-review-list span {
+  color: var(--muted);
+}
+
+.decision-log {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
 .suggestions-list {
   display: grid;
   gap: 8px;
@@ -1336,7 +1451,7 @@ button:disabled {
 
 .suggestion-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
 }
 
