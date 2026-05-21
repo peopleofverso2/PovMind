@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.16.0";
+const APP_VERSION = "0.17.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -1591,7 +1591,46 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
     {
       title: "PovMind - PovChat",
       folder: "Documentation PovMind",
-      body: `# PovMind - PovChat\n\nPovChat est un assistant déjà développé. PovMind ne doit donc pas recréer le chat : il doit lui fournir un contexte fiable, versionnable et sécurisé.\n\n## Contrat actuel\n\n- PovMind publie le vault actif via \`/sync.html\`.\n- La page appelle \`POST /api/vaults/sync\` avec \`vaultId\`, \`name\`, \`manifest\` et \`notes\`.\n- PovChat lit le même stockage Cloud SQL via le vault synchronisé.\n- PovChat peut créer ou exposer un lien \`/?import-vault={id}\` pour ouvrir un vault côté PovMind.\n- PovMind récupère alors \`GET /api/vaults/{id}/pull\` et crée un vault local.\n\n## Données envoyées\n\nChaque note publiée contient :\n\n- \`slug\`\n- \`title\`\n- \`body\`\n- \`tags\`\n- \`links\`\n\nLe manifest contient aussi \`activeSlug\`, les scopes, le repo lié et l'entrée de registre du vault. PovChat peut donc prioriser la note ouverte et son graphe proche.\n\n## Sécurité\n\n- \`VAULT_SYNC_TOKEN\` protège les endpoints Cloud SQL quand il est défini côté serveur.\n- \`POVMIND_VAULT_TOKEN\` reste réservé au bundle MCP local.\n- Le token GitHub reste séparé.\n- Les notes \`chat/*\` créées par PovChat sont préservées lors d'une sync PovMind.\n\n## Prochaine marche\n\n- Afficher dans PovMind le dernier état de sync PovChat.\n- Ajouter une lecture de retour des notes \`chat/*\` dans l'interface principale.\n- Lier le cycle Réveil aux conversations PovChat utiles.\n\nVoir [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Boucle cognitive]]. #povchat #assistant #sync #contexte`,
+      body: `# PovMind - PovChat
+
+PovChat est un assistant déjà développé. PovMind ne doit donc pas recréer le chat : il doit lui fournir un contexte fiable, versionnable et sécurisé.
+
+## Contrat actuel
+
+- PovMind publie le vault actif via \`/sync.html\`.
+- La page appelle \`POST /api/vaults/sync\` avec \`vaultId\`, \`name\`, \`manifest\` et \`notes\`.
+- PovChat lit le même stockage Cloud SQL via le vault synchronisé.
+- PovChat peut créer ou exposer un lien \`/?import-vault={id}\` pour ouvrir un vault côté PovMind.
+- PovMind récupère alors \`GET /api/vaults/{id}/pull\` et crée un vault local.
+- L'admin peut nettoyer un vault de test via \`DELETE /api/vaults/{id}\` avec le même token.
+
+## Données envoyées
+
+Chaque note publiée contient :
+
+- \`slug\`
+- \`title\`
+- \`body\`
+- \`tags\`
+- \`links\`
+
+Le manifest contient aussi \`activeSlug\`, les scopes, le repo lié et l'entrée de registre du vault. PovChat peut donc prioriser la note ouverte et son graphe proche.
+
+## Sécurité
+
+- \`VAULT_SYNC_TOKEN\` protège les endpoints Cloud SQL quand il est défini côté serveur.
+- \`POVMIND_VAULT_TOKEN\` reste réservé au bundle MCP local.
+- Le token GitHub reste séparé.
+- Les notes \`chat/*\` créées par PovChat sont préservées lors d'une sync PovMind.
+- Le \`DELETE\` admin supprime vault et notes dans une transaction; il sert au nettoyage contrôlé, pas à une purge automatique.
+
+## Prochaine marche
+
+- Afficher dans PovMind le dernier état de sync PovChat.
+- Ajouter une lecture de retour des notes \`chat/*\` dans l'interface principale.
+- Lier le cycle Réveil aux conversations PovChat utiles.
+
+Voir [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Boucle cognitive]]. #povchat #assistant #sync #contexte`,
     },
     {
       title: "PovMind - Déploiement Cloud Run",
@@ -1624,6 +1663,8 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Ajouter le cycle Réveil avec agenda de validation et delta snapshots.
 - [x] Ajouter un panneau Réveil interactif avec action, acceptation, rejet et journal de décisions.
 - [x] Déclarer PovChat comme client existant du vault via sync Cloud SQL.
+- [x] Tester la sync PovChat de bout en bout avec \`VAULT_SYNC_TOKEN\` en production.
+- [x] Ajouter un endpoint admin \`DELETE /api/vaults/{id}\` protégé par \`VAULT_SYNC_TOKEN\`.
 
 ## À prioriser
 
@@ -1631,7 +1672,6 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [ ] Configurer les secrets OAuth GitHub sur Cloud Run.
 - [ ] Importer un JSON comme nouveau vault.
 - [ ] Exporter/restaurer tout le registre multivault.
-- [ ] Tester la sync PovChat de bout en bout avec \`VAULT_SYNC_TOKEN\` en production.
 - [ ] Tester l'export MCP avec un vrai client assistant générique.
 - [ ] Ajouter un écran de statut pour expliquer ce que le token protège.
 - [ ] Comparer un snapshot et un commit repo.

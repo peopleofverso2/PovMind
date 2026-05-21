@@ -171,6 +171,31 @@ async function listVaults() {
   return r.rows;
 }
 
+async function deleteVaultSnapshot(vaultId) {
+  const pool = getPgPool();
+  if (!pool) throw new Error("Cloud SQL pool not initialized — set DATABASE_URL");
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query("SELECT id FROM vaults WHERE id = $1 FOR UPDATE", [vaultId]);
+    if (!existing.rowCount) {
+      await client.query("ROLLBACK");
+      return { vaultId, deletedNotes: 0, deletedVaults: 0 };
+    }
+
+    const notes = await client.query("DELETE FROM vault_notes WHERE vault_id = $1", [vaultId]);
+    const vault = await client.query("DELETE FROM vaults WHERE id = $1", [vaultId]);
+    await client.query("COMMIT");
+    return { vaultId, deletedNotes: notes.rowCount, deletedVaults: vault.rowCount };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -898,6 +923,29 @@ async function routeResponse(req, res) {
       writeJson(res, 200, { ok: true, vaults: list });
     } catch (err) {
       console.error("[vaults-list] error:", err);
+      writeJson(res, 500, { ok: false, error: err.message });
+    }
+    return true;
+  }
+
+  // DELETE /api/vaults/:id
+  const deleteVaultMatch = /^\/api\/vaults\/([^/]+)$/.exec(url.pathname);
+  if (deleteVaultMatch) {
+    if (req.method !== "DELETE") {
+      res.writeHead(405, { ...securityHeaders, Allow: "DELETE" });
+      res.end();
+      return true;
+    }
+    if (!vaultAuthorized(req)) { writeJson(res, 401, { ok: false, error: "unauthorized" }); return true; }
+    if (!getPgPool()) { writeJson(res, 503, { ok: false, error: "db_not_configured" }); return true; }
+    try {
+      const vaultId = decodeURIComponent(deleteVaultMatch[1]).trim();
+      if (!vaultId) { writeJson(res, 400, { ok: false, error: "vault_id_required" }); return true; }
+      const result = await deleteVaultSnapshot(vaultId);
+      if (!result.deletedVaults) { writeJson(res, 404, { ok: false, error: "vault_not_found", vaultId }); return true; }
+      writeJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      console.error("[vault-delete] error:", err);
       writeJson(res, 500, { ok: false, error: err.message });
     }
     return true;
