@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.15.0";
+const APP_VERSION = "0.16.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -153,6 +153,8 @@ const els = {
     generateTokenBtn: document.getElementById("generateTokenBtn"),
     copyTokenBtn: document.getElementById("copyTokenBtn"),
     securityExportMcpBtn: document.getElementById("securityExportMcpBtn"),
+    openPovChatSyncBtn: document.getElementById("openPovChatSyncBtn"),
+    povChatBridgeLabel: document.getElementById("povChatBridgeLabel"),
     vaultLockStatus: document.getElementById("vaultLockStatus"),
     vaultPassphraseInput: document.getElementById("vaultPassphraseInput"),
     enableVaultCryptoBtn: document.getElementById("enableVaultCryptoBtn"),
@@ -1252,7 +1254,7 @@ function documentationVaultNotes() {
         {
             title: "PovMind - Index",
             folder: "Documentation PovMind",
-            body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - Repo en vault dev]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Boucle cognitive]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
+            body: `# PovMind - Index\n\nCe dossier documente l'app PovMind de l'intérieur. Il sert de contexte vivant pour améliorer le produit en conditions réelles.\n\n## Cartographie\n\n- [[PovMind - Architecture]]\n- [[PovMind - Interface Obsidian]]\n- [[PovMind - Sécurité et tokens]]\n- [[PovMind - Auth et multivault]]\n- [[PovMind - MCP assistant]]\n- [[PovMind - PovChat]]\n- [[PovMind - Snapshots du vault]]\n- [[PovMind - Code repo]]\n- [[PovMind - Repo en vault dev]]\n- [[PovMind - GitHub repo]]\n- [[PovMind - GitHub sync]]\n- [[PovMind - Boucle cognitive]]\n- [[PovMind - Déploiement Cloud Run]]\n- [[PovMind - Backlog contexte]]\n\n## Usage grandeur nature\n\n1. On documente une décision dans ce vault.\n2. On exporte le bundle MCP ou Codex KB, ou on publie vers PovChat.\n3. L'assistant lit ce contexte et propose une amélioration.\n4. On réinjecte la décision dans PovMind.\n\n#povmind #documentation #contexte`,
         },
         {
             title: "PovMind - Architecture",
@@ -1361,7 +1363,12 @@ Voir [[PovMind - Sécurité et tokens]], [[PovMind - MCP assistant]], [[PovMind 
         {
             title: "PovMind - MCP assistant",
             folder: "Documentation PovMind",
-            body: `# PovMind - MCP assistant\n\nPovMind exporte un bundle MCP pour connecter le vault à un assistant sans exposer toute l'app web.\n\n## Transport\n\nLe bundle utilise le transport MCP \`stdio\`, donc le client lance un serveur local Node qui communique en JSON-RPC ligne par ligne.\n\n## Authentification\n\nLe serveur lit \`POVMIND_VAULT_TOKEN\`, calcule \`SHA-256(vaultId:token)\` et compare cette empreinte à celle exportée avec le vault.\n\n## Outils exposés\n\n- \`povmind.search\` : rechercher dans les notes.\n- \`povmind.read_note\` : lire une note par titre, slug ou chemin.\n- \`povmind.list_notes\` : lister les notes avec filtres simples.\n- \`povmind.vault_manifest\` : lire les métadonnées du vault.\n- \`povmind.repo_manifest\` : lire le repo lié au vault.\n- \`povmind.repo_list_files\` : découvrir les chemins exportés.\n- \`povmind.repo_search\` : chercher dans le code exporté.\n- \`povmind.repo_read_file\` : lire un fichier code précis.\n\n## Ressources exposées\n\n- \`povmind://vault/manifest\`\n- \`povmind://notes/{slug}\`\n- \`povmind://repo/manifest\`\n- \`povmind://repo/files/{path}\`\n\n## Principe produit\n\nL'assistant ne devient puissant que si le contexte est clair. Le vault “Documentation PovMind” sert donc de banc d'essai pour documenter décisions, limites, repo lié et backlog.\n\n#povmind #mcp #assistant`,
+            body: `# PovMind - MCP assistant\n\nPovMind exporte un bundle MCP pour connecter le vault à un assistant sans exposer toute l'app web.\n\n## Transport\n\nLe bundle utilise le transport MCP \`stdio\`, donc le client lance un serveur local Node qui communique en JSON-RPC ligne par ligne.\n\n## PovChat\n\nPovChat est déjà développé et utilise une autre passerelle : la sync Cloud SQL du vault. MCP reste le transport local/générique; PovChat consomme \`/api/vaults/sync\`, \`/api/vaults\` et \`/api/vaults/{vaultId}/pull\`.\n\n## Authentification\n\nLe serveur MCP lit \`POVMIND_VAULT_TOKEN\`, calcule \`SHA-256(vaultId:token)\` et compare cette empreinte à celle exportée avec le vault. La sync PovChat utilise un secret séparé : \`VAULT_SYNC_TOKEN\`.\n\n## Outils exposés\n\n- \`povmind.search\` : rechercher dans les notes.\n- \`povmind.read_note\` : lire une note par titre, slug ou chemin.\n- \`povmind.list_notes\` : lister les notes avec filtres simples.\n- \`povmind.vault_manifest\` : lire les métadonnées du vault.\n- \`povmind.repo_manifest\` : lire le repo lié au vault.\n- \`povmind.repo_list_files\` : découvrir les chemins exportés.\n- \`povmind.repo_search\` : chercher dans le code exporté.\n- \`povmind.repo_read_file\` : lire un fichier code précis.\n\n## Ressources exposées\n\n- \`povmind://vault/manifest\`\n- \`povmind://notes/{slug}\`\n- \`povmind://repo/manifest\`\n- \`povmind://repo/files/{path}\`\n\n## Principe produit\n\nL'assistant ne devient puissant que si le contexte est clair. Le vault “Documentation PovMind” sert donc de banc d'essai pour documenter décisions, limites, repo lié et backlog.\n\nVoir [[PovMind - PovChat]]. #povmind #mcp #assistant`,
+        },
+        {
+            title: "PovMind - PovChat",
+            folder: "Documentation PovMind",
+            body: `# PovMind - PovChat\n\nPovChat est un assistant déjà développé. PovMind ne doit donc pas recréer le chat : il doit lui fournir un contexte fiable, versionnable et sécurisé.\n\n## Contrat actuel\n\n- PovMind publie le vault actif via \`/sync.html\`.\n- La page appelle \`POST /api/vaults/sync\` avec \`vaultId\`, \`name\`, \`manifest\` et \`notes\`.\n- PovChat lit le même stockage Cloud SQL via le vault synchronisé.\n- PovChat peut créer ou exposer un lien \`/?import-vault={id}\` pour ouvrir un vault côté PovMind.\n- PovMind récupère alors \`GET /api/vaults/{id}/pull\` et crée un vault local.\n\n## Données envoyées\n\nChaque note publiée contient :\n\n- \`slug\`\n- \`title\`\n- \`body\`\n- \`tags\`\n- \`links\`\n\nLe manifest contient aussi \`activeSlug\`, les scopes, le repo lié et l'entrée de registre du vault. PovChat peut donc prioriser la note ouverte et son graphe proche.\n\n## Sécurité\n\n- \`VAULT_SYNC_TOKEN\` protège les endpoints Cloud SQL quand il est défini côté serveur.\n- \`POVMIND_VAULT_TOKEN\` reste réservé au bundle MCP local.\n- Le token GitHub reste séparé.\n- Les notes \`chat/*\` créées par PovChat sont préservées lors d'une sync PovMind.\n\n## Prochaine marche\n\n- Afficher dans PovMind le dernier état de sync PovChat.\n- Ajouter une lecture de retour des notes \`chat/*\` dans l'interface principale.\n- Lier le cycle Réveil aux conversations PovChat utiles.\n\nVoir [[PovMind - MCP assistant]], [[PovMind - GitHub sync]] et [[PovMind - Boucle cognitive]]. #povchat #assistant #sync #contexte`,
         },
         {
             title: "PovMind - Déploiement Cloud Run",
@@ -1393,6 +1400,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Scanner un repo GitHub en vault dev ou enrichir le vault actif avec des patterns communs.
 - [x] Ajouter le cycle Réveil avec agenda de validation et delta snapshots.
 - [x] Ajouter un panneau Réveil interactif avec action, acceptation, rejet et journal de décisions.
+- [x] Déclarer PovChat comme client existant du vault via sync Cloud SQL.
 
 ## À prioriser
 
@@ -1400,7 +1408,8 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [ ] Configurer les secrets OAuth GitHub sur Cloud Run.
 - [ ] Importer un JSON comme nouveau vault.
 - [ ] Exporter/restaurer tout le registre multivault.
-- [ ] Tester l'export MCP avec un vrai client assistant.
+- [ ] Tester la sync PovChat de bout en bout avec \`VAULT_SYNC_TOKEN\` en production.
+- [ ] Tester l'export MCP avec un vrai client assistant générique.
 - [ ] Ajouter un écran de statut pour expliquer ce que le token protège.
 - [ ] Comparer un snapshot et un commit repo.
 - [ ] Ajouter un import/export de bundles MCP.
@@ -1802,6 +1811,8 @@ function renderSecurityPanel() {
         : "Générer un token assistant";
     els.copyTokenBtn.disabled = !state.assistantToken;
     els.securityExportMcpBtn.disabled = locked;
+    els.openPovChatSyncBtn.disabled = locked;
+    els.povChatBridgeLabel.textContent = locked ? "Vault verrouillé" : "Sync Cloud SQL";
     els.exportMcpBtn.disabled = locked;
     els.exportCodexBtn.disabled = locked;
     els.exportVaultBtn.disabled = locked;
@@ -4390,6 +4401,20 @@ function assistantAccessPolicyPayload(snapshot = latestSnapshot()) {
         algorithm: state.security.algorithm,
         scopes: state.security.scopes,
         tokenEnvironmentVariable: "POVMIND_VAULT_TOKEN",
+        knownClients: [
+            {
+                id: "povchat",
+                name: "PovChat",
+                status: "existing-client",
+                bridge: "cloud-sql-vault-sync",
+                syncTokenEnvironmentVariable: "VAULT_SYNC_TOKEN",
+                publishEndpoint: "/api/vaults/sync",
+                pullEndpointTemplate: "/api/vaults/{vaultId}/pull",
+                browserSyncPage: "/sync.html",
+                importUrlParameter: "import-vault",
+                notes: "PovChat consumes server-side vault snapshots; MCP remains the local assistant transport.",
+            },
+        ],
         latestSnapshot: snapshot ? {
             id: snapshot.id,
             createdAt: snapshot.createdAt,
@@ -4508,6 +4533,18 @@ function makeMcpAccessManifest(exportedAt = nowIso(), snapshot = latestSnapshot(
         scopes: state.security.scopes,
         transport: "stdio",
         tokenEnvironmentVariable: "POVMIND_VAULT_TOKEN",
+        povchatBridge: {
+            clientName: "PovChat",
+            status: "existing-client",
+            transport: "cloud-sql-vault-sync",
+            syncTokenEnvironmentVariable: "VAULT_SYNC_TOKEN",
+            syncPage: "/sync.html",
+            endpoints: {
+                publish: "/api/vaults/sync",
+                list: "/api/vaults",
+                pull: "/api/vaults/{vaultId}/pull",
+            },
+        },
         latestSnapshot: snapshot ? {
             id: snapshot.id,
             createdAt: snapshot.createdAt,
@@ -4519,6 +4556,8 @@ function makeMcpReadmeMarkdown(context) {
     const repo = repoSummaryPayload();
     return `# PovMind MCP bundle\n\n` +
         `Ce bundle expose le vault PovMind via un serveur MCP local protégé par token.\n\n` +
+        `## PovChat\n\n` +
+        `PovChat est un client déjà développé. Il ne passe pas par ce transport \`stdio\` : il consomme le vault via la passerelle Cloud SQL \`/api/vaults/sync\` et \`/api/vaults/{vaultId}/pull\`. Depuis PovMind, ouvre \`/sync.html\` pour publier le vault actif vers PovChat.\n\n` +
         `## Démarrage rapide\n\n` +
         `1. Copie le token affiché dans PovMind après “Nouveau token”.\n` +
         `2. Lance le serveur avec la variable d'environnement :\n\n` +
@@ -5121,6 +5160,11 @@ async function exportMcpBundle() {
     downloadBlob(`povmind-mcp-vault-${date}.zip`, new Blob([zipBytes], { type: "application/zip" }));
     renderSecurityPanel();
     toast(`Bundle MCP exporté : ${context.files.length} note(s), token requis.`);
+}
+function openPovChatSync() {
+    if (!requireVaultUnlocked("synchroniser avec PovChat"))
+        return;
+    window.location.href = "sync.html";
 }
 function syncGithubSettingsFromInputs() {
     if (!els.githubRepoInput)
@@ -6629,6 +6673,11 @@ function commandDefinitions(query = "") {
             run: exportMcpBundle,
         },
         {
+            title: "Ouvrir la sync PovChat",
+            detail: "Publier le vault actif vers PovChat",
+            run: openPovChatSync,
+        },
+        {
             title: "Générer un token assistant",
             detail: "Créer un token crypto pour ce vault",
             run: generateAssistantToken,
@@ -6855,6 +6904,7 @@ function bindEvents() {
     els.generateTokenBtn.addEventListener("click", () => generateAssistantToken());
     els.copyTokenBtn.addEventListener("click", copyAssistantToken);
     els.securityExportMcpBtn.addEventListener("click", exportMcpBundle);
+    els.openPovChatSyncBtn.addEventListener("click", openPovChatSync);
     els.enableVaultCryptoBtn.addEventListener("click", enableVaultEncryption);
     els.unlockVaultBtn.addEventListener("click", unlockVault);
     els.lockVaultBtn.addEventListener("click", lockVault);
@@ -7163,9 +7213,9 @@ renderAll();
 refreshGithubStatus();
 registerServiceWorker();
 // ----------------------------------------------------------------------
-// One-shot server-vault import — povchat-created vaults that aren't
+// One-shot server-vault import — PovChat-created vaults that aren't
 // yet in this browser's localStorage. Triggered by URL parameter
-// `?import-vault=<id>` (e.g. povchat surfaces a "Open in PovMind" link).
+// `?import-vault=<id>` (e.g. PovChat surfaces a "Open in PovMind" link).
 //
 // What it does:
 //   1. Parse the param.
@@ -7207,7 +7257,7 @@ async function maybeImportServerVault() {
         return;
     }
     if (typeof toast === "function")
-        toast("Import du vault depuis povchat…");
+        toast("Import du vault depuis PovChat…");
     try {
         // sync.html stores a bearer token under "povmind:sync:token". Reuse
         // it so /api/vaults/:id/pull authenticates the same way as doPull().

@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const pkg = require("./package.json");
 
-// node-postgres for the optional Cloud SQL bridge to povchat-db.
+// node-postgres for the optional Cloud SQL bridge to PovChat's DB.
 // Required only when DATABASE_URL is set; otherwise the vault sync endpoints
 // return 503 and the rest of the server keeps working as before.
 let pgPool = null;
@@ -105,7 +105,7 @@ async function upsertVaultSnapshot(snapshot) {
     );
 
     // Replace strategy for MVP: delete then insert. Small datasets, simpler
-    // than a per-note diff. NOTE: notes published from povchat live under the
+    // than a per-note diff. NOTE: notes published from PovChat live under the
     // slug prefix `chat/...` and are PRESERVED so the bi-directional flow
     // doesn't lose them on every PovMind sync.
     await client.query("DELETE FROM vault_notes WHERE vault_id = $1 AND slug NOT LIKE 'chat/%'", [vaultId]);

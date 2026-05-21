@@ -1,4 +1,4 @@
-// Standalone sync page: reads localStorage vault data and POSTs to the server.
+// Standalone PovChat sync page: reads localStorage vault data and POSTs to the server.
 // Lives outside app.js to keep the diff on the main app surface zero.
 (function () {
   "use strict";
@@ -60,7 +60,7 @@
       throw new Error("Format inattendu sous povmind:vault:" + vaultId + ":notes — ouvre une issue avec un export du localStorage.");
     }
 
-    // Resolve the user's currently-focused note slug so povchat can prioritize it
+    // Resolve the user's currently-focused note slug so PovChat can prioritize it
     // as conversation context.
     const activeNote = activeId ? notes.find((n) => n && n.id === activeId) : null;
     const activeSlug = activeNote ? slugify(activeNote.title || "") : null;
@@ -107,7 +107,7 @@
         scopes: (security && security.scopes) || null,
         repo: repo || null,
         registryEntry: meta || null,
-        activeSlug, // → povchat prioritizes this note + its wikilink graph as context
+        activeSlug, // → PovChat prioritizes this note + its wikilink graph as context
       },
       notes: cleanNotes,
     };

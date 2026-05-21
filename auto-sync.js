@@ -62,7 +62,7 @@
       return null;
     }
 
-    // Currently-focused note slug → povchat uses this to prioritize context.
+    // Currently-focused note slug → PovChat uses this to prioritize context.
     const activeNote = activeId ? notes.find((n) => n && n.id === activeId) : null;
     const activeSlug = activeNote ? slugify(activeNote.title || "") : null;
 
@@ -105,7 +105,7 @@
         scopes: (security && security.scopes) || null,
         repo: repo || null,
         registryEntry: meta || null,
-        activeSlug, // → povchat prioritizes this note + 1-hop wikilinks as context
+        activeSlug, // → PovChat prioritizes this note + 1-hop wikilinks as context
       },
       notes: cleanNotes,
     };
