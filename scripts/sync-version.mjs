@@ -32,6 +32,13 @@ updateFile("index.html", (source) => {
   return next;
 });
 
+updateFile("sync.html", (source) => (
+  source
+    .replace(/styles\.css(?:\?v=[^"]+)?/g, `styles.css?v=${version}`)
+    .replace(/sync\.js(?:\?v=[^"]+)?/g, `sync.js?v=${version}`)
+    .replace(/auto-sync\.js(?:\?v=[^"]+)?/g, `auto-sync.js?v=${version}`)
+));
+
 updateFile("sw.js", (source) => (
   source.replace(/const CACHE_NAME = "povmind-cache-v[^"]+";/, `const CACHE_NAME = "povmind-cache-v${version}";`)
 ));

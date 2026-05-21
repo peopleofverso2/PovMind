@@ -16,6 +16,7 @@
   const TOKEN_KEY = "povmind:sync:token";
   const AUTO_KEY = "povmind:sync:auto";
   const LAST_HASH_KEY = "povmind:sync:lastHash";
+  const SYNC_STATE_KIND = "povchat-sync";
 
   function read(key, fallback) {
     try {
@@ -25,6 +26,23 @@
     } catch {
       return fallback;
     }
+  }
+
+  function syncStateKey(vaultId) {
+    return `povmind:vault:${vaultId}:${SYNC_STATE_KIND}`;
+  }
+
+  function writeSyncState(vaultId, patch) {
+    if (!vaultId) return;
+    const current = read(syncStateKey(vaultId), {});
+    const next = {
+      ...(current && typeof current === "object" ? current : {}),
+      ...patch,
+      version: 1,
+      vaultId,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(syncStateKey(vaultId), JSON.stringify(next, null, 2));
   }
 
   async function sha256(text) {
@@ -120,7 +138,13 @@
       headers,
       body: JSON.stringify(snapshot),
     });
-    return r.ok;
+    const data = await r.json().catch(() => ({}));
+    return {
+      ok: r.ok && data.ok !== false,
+      status: r.status,
+      data,
+      error: data.error || r.statusText,
+    };
   }
 
   let pendingTimer = null;
@@ -149,16 +173,36 @@
     if (pendingTimer) clearTimeout(pendingTimer);
     pendingTimer = setTimeout(async () => {
       try {
-        const ok = await postSync(snapshot);
-        if (ok) {
+        const result = await postSync(snapshot);
+        if (result.ok) {
           lastSyncedHash = hash;
           localStorage.setItem(LAST_HASH_KEY, hash);
+          writeSyncState(vaultId, {
+            lastStatus: "ok",
+            lastSource: "auto",
+            lastPushedAt: new Date().toISOString(),
+            noteCount: Number(result.data.noteCount || snapshot.notes.length),
+            activeSlug: snapshot.manifest && snapshot.manifest.activeSlug || "",
+            lastError: "",
+          });
           // Soft signal for the UI; harmless if nothing listens.
           window.dispatchEvent(new CustomEvent("povmind:auto-sync", { detail: { vaultId, ok: true } }));
         } else {
+          writeSyncState(vaultId, {
+            lastStatus: "error",
+            lastSource: "auto",
+            lastErrorAt: new Date().toISOString(),
+            lastError: `HTTP ${result.status}: ${result.error || "sync_failed"}`,
+          });
           window.dispatchEvent(new CustomEvent("povmind:auto-sync", { detail: { vaultId, ok: false } }));
         }
       } catch (err) {
+        writeSyncState(vaultId, {
+          lastStatus: "error",
+          lastSource: "auto",
+          lastErrorAt: new Date().toISOString(),
+          lastError: err.message || "network_failed",
+        });
         console.warn("[auto-sync] failed:", err);
       } finally {
         pendingTimer = null;

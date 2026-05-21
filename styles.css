@@ -38,6 +38,89 @@ body {
   background: var(--bg);
 }
 
+.sync-page {
+  width: min(760px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 36px 0;
+}
+
+.sync-page h1 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  line-height: 0.95;
+}
+
+.sync-page p,
+.sync-page label {
+  color: var(--text);
+}
+
+.sync-page input[type="password"] {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.sync-page button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--panel-soft);
+  color: var(--ink);
+  font-weight: 850;
+}
+
+.sync-page button:hover {
+  border-color: var(--line-strong);
+}
+
+.sync-page a {
+  color: var(--ink);
+}
+
+.sync-status-card {
+  display: grid;
+  gap: 6px;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+}
+
+.sync-status-card span {
+  color: var(--muted-2);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sync-status-card strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.sync-status-card small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.sync-page pre {
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #101010;
+  color: var(--ink);
+}
+
 button,
 input,
 textarea {
@@ -965,6 +1048,14 @@ button:disabled {
 
 .povchat-row {
   margin-top: 10px;
+}
+
+.security-meta {
+  margin-top: 6px;
+  padding: 0 2px;
+  color: var(--muted-2);
+  font-size: 0.74rem;
+  line-height: 1.35;
 }
 
 .token-field {

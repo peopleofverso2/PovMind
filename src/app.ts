@@ -1,5 +1,5 @@
 const APP_NAME = "PovMind";
-const APP_VERSION = "0.17.0";
+const APP_VERSION = "0.18.0";
 const STORAGE_KEY = "povmind:v1";
 const VIEW_KEY = "povmind:view";
 const GRAPH_LAYOUT_KEY = "povmind:graph-layout";
@@ -10,6 +10,7 @@ const DOC_VAULT_KEY = "povmind:doc-vault:v1";
 const SNAPSHOTS_KEY = "povmind:snapshots";
 const REPO_KEY = "povmind:repo";
 const GITHUB_SYNC_KEY = "povmind:github-sync";
+const POVCHAT_SYNC_KIND = "povchat-sync";
 const LEARNING_MEMORY_KEY = "povmind:learning-memory";
 const ENRICHMENT_RUNS_KEY = "povmind:enrichment-runs";
 const COGNITIVE_CYCLES_KEY = "povmind:cognitive-cycles";
@@ -305,6 +306,7 @@ const els: Record<string, any> = {
   securityExportMcpBtn: document.getElementById("securityExportMcpBtn"),
   openPovChatSyncBtn: document.getElementById("openPovChatSyncBtn"),
   povChatBridgeLabel: document.getElementById("povChatBridgeLabel"),
+  povChatSyncMeta: document.getElementById("povChatSyncMeta"),
   vaultLockStatus: document.getElementById("vaultLockStatus"),
   vaultPassphraseInput: document.getElementById("vaultPassphraseInput"),
   enableVaultCryptoBtn: document.getElementById("enableVaultCryptoBtn"),
@@ -1296,6 +1298,47 @@ function formatDate(iso) {
   }
 }
 
+function readPovChatSyncState(vaultId = activeVaultId) {
+  try {
+    const value = JSON.parse(localStorage.getItem(vaultStorageKey(POVCHAT_SYNC_KIND, vaultId)) || "null");
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function describePovChatSyncState(sync) {
+  const auto = localStorage.getItem("povmind:sync:auto") === "1" ? "Auto actif" : "Auto inactif";
+  if (!sync) {
+    return {
+      label: "Jamais synchronisé",
+      detail: `${auto} · ouvre PovChat pour publier ou vérifier le vault.`,
+    };
+  }
+  if (sync.lastStatus === "error") {
+    return {
+      label: `Erreur sync${sync.lastErrorAt ? ` · ${formatDate(sync.lastErrorAt)}` : ""}`,
+      detail: [sync.lastError || "Erreur inconnue", auto].filter(Boolean).join(" · "),
+    };
+  }
+
+  const pushedAt = sync.lastPushedAt || "";
+  const pulledAt = sync.lastPulledAt || "";
+  const latestIsPull = pulledAt && (!pushedAt || new Date(pulledAt).getTime() >= new Date(pushedAt).getTime());
+  const label = latestIsPull
+    ? `Serveur vérifié${pulledAt ? ` · ${formatDate(pulledAt)}` : ""}`
+    : pushedAt
+      ? `Push · ${formatDate(pushedAt)}`
+      : "Sync Cloud SQL";
+  const details = [];
+  if (Number.isFinite(Number(sync.noteCount))) details.push(`${Number(sync.noteCount)} notes publiées`);
+  if (Number.isFinite(Number(sync.remoteNoteCount))) details.push(`${Number(sync.remoteNoteCount)} notes serveur`);
+  if (Number(sync.chatNoteCount) > 0) details.push(`${Number(sync.chatNoteCount)} notes chat`);
+  if (sync.remoteLastSyncedAt) details.push(`distant ${formatDate(sync.remoteLastSyncedAt)}`);
+  details.push(auto);
+  return { label, detail: details.join(" · ") };
+}
+
 function readStoredValue(key, legacyKey) {
   const current = localStorage.getItem(key);
   if (current !== null) return current;
@@ -1624,9 +1667,14 @@ Le manifest contient aussi \`activeSlug\`, les scopes, le repo lié et l'entrée
 - Les notes \`chat/*\` créées par PovChat sont préservées lors d'une sync PovMind.
 - Le \`DELETE\` admin supprime vault et notes dans une transaction; il sert au nettoyage contrôlé, pas à une purge automatique.
 
+## État visible
+
+- La page \`/sync.html\` écrit l'état local \`povmind:vault:{id}:povchat-sync\`.
+- PovMind affiche dernier push, dernier pull serveur, nombre de notes publiées, notes \`chat/*\` reçues et état auto-sync.
+- L'état est informatif : la source de vérité reste Cloud SQL côté PovChat et le vault local côté PovMind.
+
 ## Prochaine marche
 
-- Afficher dans PovMind le dernier état de sync PovChat.
 - Ajouter une lecture de retour des notes \`chat/*\` dans l'interface principale.
 - Lier le cycle Réveil aux conversations PovChat utiles.
 
@@ -1665,6 +1713,7 @@ Ce backlog sert à tester PovMind sur lui-même : chaque amélioration doit pouv
 - [x] Déclarer PovChat comme client existant du vault via sync Cloud SQL.
 - [x] Tester la sync PovChat de bout en bout avec \`VAULT_SYNC_TOKEN\` en production.
 - [x] Ajouter un endpoint admin \`DELETE /api/vaults/{id}\` protégé par \`VAULT_SYNC_TOKEN\`.
+- [x] Afficher dans PovMind le dernier état de sync PovChat.
 
 ## À prioriser
 
@@ -2083,7 +2132,9 @@ function renderSecurityPanel() {
   els.copyTokenBtn.disabled = !state.assistantToken;
   els.securityExportMcpBtn.disabled = locked;
   els.openPovChatSyncBtn.disabled = locked;
-  els.povChatBridgeLabel.textContent = locked ? "Vault verrouillé" : "Sync Cloud SQL";
+  const povChatSync = describePovChatSyncState(readPovChatSyncState());
+  els.povChatBridgeLabel.textContent = locked ? "Vault verrouillé" : povChatSync.label;
+  els.povChatSyncMeta.textContent = locked ? "Déverrouille le vault pour publier vers PovChat." : povChatSync.detail;
   els.exportMcpBtn.disabled = locked;
   els.exportCodexBtn.disabled = locked;
   els.exportVaultBtn.disabled = locked;
@@ -7696,6 +7747,12 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     applyLayoutSettings();
     persistLayoutSettings();
+  });
+  window.addEventListener("povmind:auto-sync", () => renderSecurityPanel());
+  window.addEventListener("storage", (event) => {
+    if (event.key === vaultStorageKey(POVCHAT_SYNC_KIND) || event.key === "povmind:sync:auto") {
+      renderSecurityPanel();
+    }
   });
 
   document.addEventListener("keydown", (event) => {

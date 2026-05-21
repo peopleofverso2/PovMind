@@ -5,13 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex" />
   <title>PovMind · Sync vers PovChat</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=0.18.0" />
 </head>
 <body>
   <main class="sync-page">
     <h1>Sync vault → PovChat</h1>
     <p>PovChat est déjà développé : cette passerelle publie simplement le vault actif PovMind comme contexte serveur.</p>
     <p id="vault-info">Chargement…</p>
+    <section class="sync-status-card" aria-label="État PovChat">
+      <span>État PovChat</span>
+      <strong id="sync-summary">Aucun état local</strong>
+      <small id="sync-detail">Synchronise ou vérifie le serveur pour alimenter ce statut.</small>
+    </section>
     <form id="token-form" autocomplete="off" onsubmit="return false">
       <label>
         Vault sync token (optionnel, requis si <code>VAULT_SYNC_TOKEN</code> est défini sur le serveur) :
@@ -31,7 +36,7 @@
     <pre id="status">Prêt.</pre>
     <p><a href="/">← retour à PovMind</a></p>
   </main>
-  <script src="sync.js"></script>
-  <script src="auto-sync.js"></script>
+  <script src="sync.js?v=0.18.0"></script>
+  <script src="auto-sync.js?v=0.18.0"></script>
 </body>
 </html>

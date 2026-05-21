@@ -9,6 +9,8 @@
   const tokenInput = $("token");
 
   const TOKEN_KEY = "povmind:sync:token"; // remembered locally for convenience
+  const AUTO_KEY = "povmind:sync:auto";
+  const SYNC_STATE_KIND = "povchat-sync";
 
   function setStatus(msg, ok) {
     status.textContent = msg;
@@ -32,6 +34,86 @@
 
   function vaultKey(vaultId, kind) {
     return "povmind:vault:" + vaultId + ":" + kind;
+  }
+
+  function syncStateKey(vaultId) {
+    return vaultKey(vaultId, SYNC_STATE_KIND);
+  }
+
+  function readSyncState(vaultId) {
+    const state = readJson(syncStateKey(vaultId), null);
+    return state && typeof state === "object" ? state : null;
+  }
+
+  function writeSyncState(vaultId, patch) {
+    if (!vaultId) return;
+    const next = {
+      ...(readSyncState(vaultId) || {}),
+      ...patch,
+      version: 1,
+      vaultId,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(syncStateKey(vaultId), JSON.stringify(next, null, 2));
+    renderSyncState(vaultId);
+  }
+
+  function countChatNotes(notes) {
+    return (Array.isArray(notes) ? notes : []).filter((note) => String(note.slug || "").startsWith("chat/")).length;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "";
+    try {
+      return new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(iso));
+    } catch {
+      return "";
+    }
+  }
+
+  function describeSyncState(state) {
+    const auto = localStorage.getItem(AUTO_KEY) === "1" ? "Auto actif" : "Auto inactif";
+    if (!state) {
+      return {
+        summary: "Aucun état local",
+        detail: auto + " · synchronise ou vérifie le serveur pour alimenter ce statut.",
+      };
+    }
+    if (state.lastStatus === "error") {
+      return {
+        summary: "Erreur sync" + (state.lastErrorAt ? " · " + formatDate(state.lastErrorAt) : ""),
+        detail: [state.lastError || "Erreur inconnue", auto].filter(Boolean).join(" · "),
+      };
+    }
+    const pushedAt = state.lastPushedAt || "";
+    const pulledAt = state.lastPulledAt || "";
+    const latestIsPull = pulledAt && (!pushedAt || new Date(pulledAt).getTime() >= new Date(pushedAt).getTime());
+    const summary = latestIsPull
+      ? "Serveur vérifié" + (pulledAt ? " · " + formatDate(pulledAt) : "")
+      : pushedAt
+        ? "Push PovChat · " + formatDate(pushedAt)
+        : "Prêt pour PovChat";
+    const details = [];
+    if (Number.isFinite(Number(state.noteCount))) details.push(Number(state.noteCount) + " notes publiées");
+    if (Number.isFinite(Number(state.remoteNoteCount))) details.push(Number(state.remoteNoteCount) + " notes serveur");
+    if (Number(state.chatNoteCount) > 0) details.push(Number(state.chatNoteCount) + " notes chat");
+    if (state.remoteLastSyncedAt) details.push("distant " + formatDate(state.remoteLastSyncedAt));
+    details.push(auto);
+    return { summary, detail: details.join(" · ") };
+  }
+
+  function renderSyncState(vaultId) {
+    const summaryEl = $("sync-summary");
+    const detailEl = $("sync-detail");
+    if (!summaryEl || !detailEl) return;
+    const view = describeSyncState(readSyncState(vaultId));
+    summaryEl.textContent = view.summary;
+    detailEl.textContent = view.detail;
   }
 
   function buildSnapshot(vaultId) {
@@ -129,8 +211,8 @@
   }
 
   async function doSync() {
+    const vaultId = getActiveVaultId();
     try {
-      const vaultId = getActiveVaultId();
       const snapshot = buildSnapshot(vaultId);
       setStatus("Envoi de " + snapshot.notes.length + " note(s)…");
       const r = await fetch("/api/vaults/sync", {
@@ -140,20 +222,41 @@
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
-        setStatus("Erreur " + r.status + " : " + (data.error || r.statusText), false);
+        const message = "Erreur " + r.status + " : " + (data.error || r.statusText);
+        writeSyncState(vaultId, {
+          lastStatus: "error",
+          lastSource: "manual",
+          lastErrorAt: new Date().toISOString(),
+          lastError: message,
+        });
+        setStatus(message, false);
         return;
       }
       // Persist the token for next time only on success
       if (tokenInput.value.trim()) localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+      writeSyncState(vaultId, {
+        lastStatus: "ok",
+        lastSource: "manual",
+        lastPushedAt: new Date().toISOString(),
+        noteCount: Number(data.noteCount || snapshot.notes.length),
+        activeSlug: snapshot.manifest && snapshot.manifest.activeSlug || "",
+        lastError: "",
+      });
       setStatus("Synchronisé. Vault " + data.vaultId + ", " + data.noteCount + " note(s).", true);
     } catch (err) {
+      writeSyncState(vaultId, {
+        lastStatus: "error",
+        lastSource: "manual",
+        lastErrorAt: new Date().toISOString(),
+        lastError: err.message,
+      });
       setStatus("Échec : " + err.message, false);
     }
   }
 
   async function doPull() {
+    const vaultId = getActiveVaultId();
     try {
-      const vaultId = getActiveVaultId();
       if (!vaultId) {
         setStatus("Aucun vault actif.", false);
         return;
@@ -164,15 +267,37 @@
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
-        setStatus("Erreur " + r.status + " : " + (data.error || r.statusText), false);
+        const message = "Erreur " + r.status + " : " + (data.error || r.statusText);
+        writeSyncState(vaultId, {
+          lastStatus: "error",
+          lastSource: "pull",
+          lastErrorAt: new Date().toISOString(),
+          lastError: message,
+        });
+        setStatus(message, false);
         return;
       }
       const v = data.vault;
+      writeSyncState(vaultId, {
+        lastStatus: "ok",
+        lastSource: "pull",
+        lastPulledAt: new Date().toISOString(),
+        remoteLastSyncedAt: v.lastSyncedAt,
+        remoteNoteCount: Array.isArray(v.notes) ? v.notes.length : 0,
+        chatNoteCount: countChatNotes(v.notes),
+        lastError: "",
+      });
       setStatus(
         "Serveur : " + v.notes.length + " note(s) · last_synced_at = " + v.lastSyncedAt,
         true,
       );
     } catch (err) {
+      writeSyncState(vaultId, {
+        lastStatus: "error",
+        lastSource: "pull",
+        lastErrorAt: new Date().toISOString(),
+        lastError: err.message,
+      });
       setStatus("Échec : " + err.message, false);
     }
   }
@@ -196,6 +321,7 @@
     vaultInfo.textContent =
       "Vault actif : " + vaultId + " · " + arr.length + " note(s) en localStorage" +
       (sealed ? " (chiffré, déverrouille-le dans PovMind)" : "") + ".";
+    renderSyncState(vaultId);
 
     $("sync-btn").addEventListener("click", doSync);
     $("pull-btn").addEventListener("click", doPull);
@@ -225,17 +351,19 @@
     // Auto-sync toggle (consumed by auto-sync.js).
     const autoCheckbox = $("auto-sync");
     if (autoCheckbox) {
-      autoCheckbox.checked = localStorage.getItem("povmind:sync:auto") === "1";
+      autoCheckbox.checked = localStorage.getItem(AUTO_KEY) === "1";
       autoCheckbox.addEventListener("change", () => {
         if (autoCheckbox.checked) {
           if (!tokenInput.value.trim() && false) {
             // Token is optional unless server enforces VAULT_SYNC_TOKEN.
           }
-          localStorage.setItem("povmind:sync:auto", "1");
+          localStorage.setItem(AUTO_KEY, "1");
           if (tokenInput.value.trim()) localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+          renderSyncState(vaultId);
           setStatus("Sync auto activée.", true);
         } else {
-          localStorage.removeItem("povmind:sync:auto");
+          localStorage.removeItem(AUTO_KEY);
+          renderSyncState(vaultId);
           setStatus("Sync auto désactivée.");
         }
       });
@@ -244,6 +372,7 @@
     // Surface auto-sync events for visual feedback.
     window.addEventListener("povmind:auto-sync", (e) => {
       const detail = e.detail || {};
+      if (detail.vaultId === vaultId) renderSyncState(vaultId);
       if (detail.ok) setStatus("Auto-sync : vault " + detail.vaultId + " à jour.", true);
       else setStatus("Auto-sync : échec sur " + detail.vaultId, false);
     });
